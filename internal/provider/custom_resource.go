@@ -510,7 +510,7 @@ func (r *CustomResource) ImportState(ctx context.Context, req resource.ImportSta
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-// executeScript runs the provided script with input and returns the output
+// executeScript runs the provided script with input and returns the output.
 func (r *CustomResource) executeScript(ctx context.Context, scriptList types.List, input string) (string, error) {
 	tflog.Debug(ctx, "Executing script", map[string]interface{}{
 		"script": scriptList.String(),
@@ -610,7 +610,7 @@ func (r *CustomResource) executeScript(ctx context.Context, scriptList types.Lis
 	return output, nil
 }
 
-// ModifyPlan implements resource.ResourceWithModifyPlan
+// ModifyPlan implements resource.ResourceWithModifyPlan.
 func (r *CustomResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	var plan, state CustomResourceModel
 
