@@ -10,7 +10,7 @@ provider "customcrud" {}
 
 resource "customcrud_resource" "file" {
   create_script = ["./crud/create.sh"]
-  read_script = ["./crud/read.sh"]
+  read_script   = ["./crud/read.sh"]
   update_script = ["./crud/update.sh"]
   delete_script = ["./crud/delete.sh"]
 
