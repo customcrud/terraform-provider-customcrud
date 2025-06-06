@@ -1,0 +1,10 @@
+---
+schema: 1.1
+
+partition: tf-ecosystem
+
+summary:
+  owner: rubypx
+  description: |
+    A provider that allows custom CRUD operations via subprocess calls.
+  visibility: public
