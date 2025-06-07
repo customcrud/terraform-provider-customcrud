@@ -17,6 +17,6 @@ resource "customcrud_resource" "file" {
   }
 
   input = {
-    content  = "Hello, World test!"
+    content = "Hello, World test!"
   }
 }
