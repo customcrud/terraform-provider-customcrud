@@ -4,632 +4,633 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
+	"math/big"
 	"os/exec"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
-var _ resource.Resource = &CustomResource{}
-var _ resource.ResourceWithImportState = &CustomResource{}
+var _ resource.Resource = &customCrudResource{}
+var _ resource.ResourceWithImportState = &customCrudResource{}
 
-func NewCustomResource() resource.Resource {
-	return &CustomResource{}
+// CustomCrudResource implementation
+type customCrudResourceModel struct {
+	Id     types.String  `tfsdk:"id"`
+	Hooks  types.List    `tfsdk:"hooks"`
+	Input  types.Dynamic `tfsdk:"input"`
+	Output types.Dynamic `tfsdk:"output"`
 }
 
-// ExampleResource defines the resource implementation.
-type CustomResource struct{}
-
-// ExampleResourceModel describes the resource data model.
-type CustomResourceModel struct {
-	CreateScript types.List `tfsdk:"create_script"`
-	ReadScript   types.List `tfsdk:"read_script"`
-	UpdateScript types.List `tfsdk:"update_script"`
-	DeleteScript types.List `tfsdk:"delete_script"`
-	Input        types.Map  `tfsdk:"input"`
-	Output       types.Map  `tfsdk:"output"`
+type hooksBlockValue struct {
+	Create types.String `tfsdk:"create"`
+	Read   types.String `tfsdk:"read"`
+	Update types.String `tfsdk:"update"`
+	Delete types.String `tfsdk:"delete"`
 }
 
-func (r *CustomResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+type customCrudResource struct{}
+
+func NewCustomCrudResource() resource.Resource {
+	return &customCrudResource{}
+}
+
+func (r *customCrudResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_resource"
 }
 
-func (r *CustomResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *customCrudResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Custom resource for custom CRUD operations",
-
 		Attributes: map[string]schema.Attribute{
-			"create_script": schema.ListAttribute{
-				ElementType:         types.StringType,
-				Required:            true,
-				MarkdownDescription: "Script to run for create operation",
+			"id": schema.StringAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Resource identifier",
 			},
-			"read_script": schema.ListAttribute{
-				ElementType:         types.StringType,
-				Required:            true,
-				MarkdownDescription: "Script to run for read operation",
+			"input": schema.DynamicAttribute{
+				Optional:    true,
+				Description: "Input data for the resource",
 			},
-			"update_script": schema.ListAttribute{
-				ElementType:         types.StringType,
-				Optional:            true,
-				MarkdownDescription: "Script to run for update operation",
+			"output": schema.DynamicAttribute{
+				Computed:    true,
+				Description: "Output data from the resource",
 			},
-			"delete_script": schema.ListAttribute{
-				ElementType:         types.StringType,
-				Required:            true,
-				MarkdownDescription: "Script to run for delete operation",
-			},
-			"input": schema.MapAttribute{
-				ElementType:         types.StringType,
-				Required:            true,
-				MarkdownDescription: "Input map to pass to the scripts",
-			},
-			"output": schema.MapAttribute{
-				ElementType:         types.StringType,
-				Computed:            true,
-				MarkdownDescription: "Output values from the scripts",
+		},
+		Blocks: map[string]schema.Block{
+			"hooks": schema.ListNestedBlock{
+				NestedObject: schema.NestedBlockObject{
+					Attributes: map[string]schema.Attribute{
+						"create": schema.StringAttribute{
+							Required:    true,
+							Description: "Create command (space-separated command and arguments)",
+						},
+						"read": schema.StringAttribute{
+							Required:    true,
+							Description: "Read command (space-separated command and arguments)",
+						},
+						"update": schema.StringAttribute{
+							Optional:    true,
+							Description: "Update command (space-separated command and arguments)",
+						},
+						"delete": schema.StringAttribute{
+							Required:    true,
+							Description: "Delete command (space-separated command and arguments)",
+						},
+					},
+				},
+				Validators: []validator.List{
+					listvalidator.SizeAtMost(1),
+				},
 			},
 		},
 	}
 }
 
-func (r *CustomResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var data CustomResourceModel
-
-	// Get plan values
-	diags := req.Plan.Get(ctx, &data)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// Initialize empty map if input is null
-	if data.Input.IsNull() {
-		mapVal, diags := types.MapValue(types.StringType, map[string]attr.Value{})
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		data.Input = mapVal
-	}
-
-	// Convert input map to JSON string for script execution
-	var inputMap map[string]string
-	data.Input.ElementsAs(ctx, &inputMap, false)
-	inputJSON, err := json.Marshal(inputMap)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Input Conversion Failed",
-			fmt.Sprintf("Failed to convert input to JSON: %s", err.Error()),
-		)
-		return
-	}
-
-	// Execute create script
-	createOutput, err := r.executeScript(ctx, data.CreateScript, string(inputJSON))
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Create Script Execution Failed",
-			fmt.Sprintf("Failed to execute create script: %s", err.Error()),
-		)
-		return
-	}
-
-	tflog.Debug(ctx, "Create script output",
-		map[string]interface{}{
-			"output": createOutput,
-		})
-
-	// Parse output to extract ID
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(createOutput), &result); err != nil {
-		resp.Diagnostics.AddError(
-			"Create Script Output Parse Error",
-			fmt.Sprintf("Failed to parse JSON output: %s", err.Error()),
-		)
-		return
-	}
-
-	// Convert the remaining state to a map for storage
-	resultMap := make(map[string]attr.Value)
-	for k, v := range result {
-		if str, ok := v.(string); ok {
-			resultMap[k] = types.StringValue(str)
-		} else {
-			strVal, _ := json.Marshal(v)
-			resultMap[k] = types.StringValue(string(strVal))
-		}
-	}
-
-	// Update input map with matching values from result
-	inputResultMap := make(map[string]attr.Value)
-	var currentInput map[string]string
-	data.Input.ElementsAs(ctx, &currentInput, false)
-	for k := range currentInput {
-		if v, ok := resultMap[k]; ok {
-			inputResultMap[k] = v
-		} else {
-			inputResultMap[k] = types.StringValue(currentInput[k])
-		}
-	}
-
-	// Create input and output maps
-	inputMapVal, diags := types.MapValue(types.StringType, inputResultMap)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	data.Input = inputMapVal
-
-	outputMapVal, diags := types.MapValue(types.StringType, resultMap)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	data.Output = outputMapVal
-
-	tflog.Debug(ctx, "Setting state with create output",
-		map[string]interface{}{
-			"input":  inputResultMap,
-			"output": resultMap,
-		})
-
-	// Save the data into Terraform state
-	resp.Diagnostics.Append(resp.State.Set(ctx, data)...)
+type scriptPayload struct {
+	Id     string      `json:"id"`
+	Input  interface{} `json:"input"`
+	Output interface{} `json:"output"`
 }
 
-func (r *CustomResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var data CustomResourceModel
+func (r *customCrudResource) convertToPayload(plan *customCrudResourceModel, state *customCrudResourceModel) ([]byte, error) {
+	var inputValue interface{}
+	var outputValue interface{}
+	id := ""
 
-	// Get current state
-	diags := req.State.Get(ctx, &data)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
+	// Get input from plan or state
+	if plan != nil && !plan.Input.IsNull() && !plan.Input.IsUnknown() {
+		inputValue = r.attrValueToInterface(plan.Input.UnderlyingValue())
+	} else if state != nil && !state.Input.IsNull() && !state.Input.IsUnknown() {
+		inputValue = r.attrValueToInterface(state.Input.UnderlyingValue())
 	}
 
-	// Initialize empty map if input is null
-	if data.Input.IsNull() {
-		mapVal, diags := types.MapValue(types.StringType, map[string]attr.Value{})
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		data.Input = mapVal
-	}
-
-	// Convert input and output maps to string maps for script execution
-	var inputMap, outputMap map[string]string
-	data.Input.ElementsAs(ctx, &inputMap, false)
-	data.Output.ElementsAs(ctx, &outputMap, false)
-
-	// Create a separate map for script execution that includes both input and output
-	scriptInput := make(map[string]string)
-	for k, v := range inputMap {
-		scriptInput[k] = v
-	}
-	for k, v := range outputMap {
-		scriptInput[k] = v
-	}
-
-	readInputJSON, err := json.Marshal(scriptInput)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Input Conversion Failed",
-			fmt.Sprintf("Failed to convert input to JSON: %s", err.Error()),
-		)
-		return
-	}
-
-	// Execute read script
-	readOutput, err := r.executeScript(ctx, data.ReadScript, string(readInputJSON))
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Read Script Execution Failed",
-			fmt.Sprintf("Failed to execute read script: %s", err.Error()),
-		)
-		return
-	}
-
-	// Parse the read output
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(readOutput), &result); err != nil {
-		resp.Diagnostics.AddError(
-			"Read Script Output Parse Error",
-			fmt.Sprintf("Failed to parse JSON output: %s", err.Error()),
-		)
-		return
-	}
-
-	// Convert to map values and store everything from the script output except ID
-	resultMap := make(map[string]attr.Value)
-	for k, v := range result {
-		if str, ok := v.(string); ok {
-			resultMap[k] = types.StringValue(str)
-		} else {
-			strVal, _ := json.Marshal(v)
-			resultMap[k] = types.StringValue(string(strVal))
+	// Get output and id from state
+	if state != nil {
+		id = state.Id.ValueString()
+		if !state.Output.IsNull() && !state.Output.IsUnknown() {
+			outputValue = r.attrValueToInterface(state.Output.UnderlyingValue())
 		}
 	}
 
-	// Update input map with matching values from result
-	inputResultMap := make(map[string]attr.Value)
-	var currentInput map[string]string
-	data.Input.ElementsAs(ctx, &currentInput, false)
-	for k := range currentInput {
-		if v, ok := resultMap[k]; ok {
-			inputResultMap[k] = v
-		} else {
-			inputResultMap[k] = types.StringValue(currentInput[k])
-		}
+	payload := scriptPayload{
+		Id:     id,
+		Input:  inputValue,
+		Output: outputValue,
 	}
 
-	// Create input and output maps
-	inputMapVal, diags := types.MapValue(types.StringType, inputResultMap)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	data.Input = inputMapVal
-
-	outputMapVal, diags := types.MapValue(types.StringType, resultMap)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	data.Output = outputMapVal
-
-	// Save updated data into Terraform state
-	resp.Diagnostics.Append(resp.State.Set(ctx, data)...)
+	return json.Marshal(payload)
 }
 
-func (r *CustomResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var data CustomResourceModel
-	var state CustomResourceModel
-
-	// Read Terraform state data into the model
-	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	if resp.Diagnostics.HasError() {
-		return
+func (r *customCrudResource) executeScript(ctx context.Context, cmd []string, payload scriptPayload) (map[string]interface{}, error) {
+	if len(cmd) == 0 {
+		return nil, fmt.Errorf("empty command")
 	}
-	// Read Terraform plan data into the model
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	tflog.Debug(ctx, "Executing script", map[string]interface{}{
+		"command": cmd,
+		"payload": string(payloadBytes),
+	})
+
+	execCmd := exec.CommandContext(ctx, cmd[0], cmd[1:]...)
+	execCmd.Stdin = bytes.NewReader(payloadBytes)
+
+	var stdout, stderr bytes.Buffer
+	execCmd.Stdout = &stdout
+	execCmd.Stderr = &stderr
+
+	err = execCmd.Run()
+	if err != nil {
+		tflog.Debug(ctx, "Script execution failed", map[string]interface{}{
+			"stdout": stdout.String(),
+			"stderr": stderr.String(),
+			"error":  err.Error(),
+		})
+		return nil, fmt.Errorf("script execution failed: %w", err)
+	}
+
+	tflog.Debug(ctx, "Script execution completed", map[string]interface{}{
+		"stdout": stdout.String(),
+		"stderr": stderr.String(),
+	})
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		return nil, fmt.Errorf("failed to parse script output: %w", err)
+	}
+
+	return result, nil
+}
+
+func (r *customCrudResource) getCrudCommands(data *customCrudResourceModel) (*hooksBlockValue, error) {
+	if data.Hooks.IsNull() || data.Hooks.IsUnknown() {
+		return nil, fmt.Errorf("crud block is null or unknown")
+	}
+
+	elements := data.Hooks.Elements()
+	if len(elements) == 0 {
+		return nil, fmt.Errorf("crud block is empty")
+	}
+
+	obj, ok := elements[0].(types.Object)
+	if !ok {
+		return nil, fmt.Errorf("crud block element is not an object")
+	}
+
+	crud := &hooksBlockValue{}
+	attrs := obj.Attributes()
+
+	if create, ok := attrs["create"].(types.String); ok {
+		crud.Create = create
+	}
+	if read, ok := attrs["read"].(types.String); ok {
+		crud.Read = read
+	}
+	if update, ok := attrs["update"].(types.String); ok {
+		crud.Update = update
+	}
+	if delete, ok := attrs["delete"].(types.String); ok {
+		crud.Delete = delete
+	}
+
+	return crud, nil
+}
+
+func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var data customCrudResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Initialize empty map if input is null
-	if data.Input.IsNull() {
-		mapVal, diags := types.MapValue(types.StringType, map[string]attr.Value{})
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		data.Input = mapVal
-	}
-
-	scriptInputMap := make(map[string]string)
-
-	outputMap := state.Output.Elements()
-	for key, val := range outputMap {
-		strVal, ok := val.(types.String)
-		if ok && !strVal.IsUnknown() && !strVal.IsNull() {
-			scriptInputMap[key] = strVal.ValueString()
-			tflog.Debug(ctx, "Update input map from output", map[string]interface{}{
-				"key":   key,
-				"value": strVal.ValueString(),
-			})
-		}
-	}
-
-	inputMap := data.Input.Elements()
-	for key, val := range inputMap {
-		strVal, ok := val.(types.String)
-		if ok && !strVal.IsUnknown() && !strVal.IsNull() {
-			scriptInputMap[key] = strVal.ValueString()
-			tflog.Debug(ctx, "Update input map from input", map[string]interface{}{
-				"key":   key,
-				"value": strVal.ValueString(),
-			})
-		}
-	}
-
-	updateInputJSON, err := json.Marshal(scriptInputMap)
-	tflog.Debug(ctx, "Update input JSON", map[string]interface{}{
-		"input": scriptInputMap,
-	})
+	crud, err := r.getCrudCommands(&data)
 	if err != nil {
-		resp.Diagnostics.AddError(
-			"Input Conversion Failed",
-			fmt.Sprintf("Failed to convert input to JSON: %s", err.Error()),
-		)
+		resp.Diagnostics.AddError("Error getting CRUD commands", err.Error())
 		return
 	}
 
-	// Execute update script if provided
-	if !data.UpdateScript.IsNull() {
-		updateOutput, err := r.executeScript(ctx, data.UpdateScript, string(updateInputJSON))
-		if err != nil {
-			resp.Diagnostics.AddError(
-				"Update Script Execution Failed",
-				fmt.Sprintf("Failed to execute update script: %s", err.Error()),
-			)
-			return
-		}
-
-		// Parse the update output
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(updateOutput), &result); err != nil {
-			resp.Diagnostics.AddError(
-				"Update Script Output Parse Error",
-				fmt.Sprintf("Failed to parse JSON output: %s", err.Error()),
-			)
-			return
-		}
-
-		// Convert to map values
-		resultMap := make(map[string]attr.Value)
-		for k, v := range result {
-			if str, ok := v.(string); ok {
-				resultMap[k] = types.StringValue(str)
-			} else {
-				strVal, _ := json.Marshal(v)
-				resultMap[k] = types.StringValue(string(strVal))
-			}
-		}
-
-		// Update input map with matching values from result
-		inputResultMap := make(map[string]attr.Value)
-		var currentInput map[string]string
-		data.Input.ElementsAs(ctx, &currentInput, false)
-		for k := range currentInput {
-			if v, ok := resultMap[k]; ok {
-				inputResultMap[k] = v
-			} else {
-				inputResultMap[k] = types.StringValue(currentInput[k])
-			}
-		}
-
-		// Create input and output maps
-		inputMapVal, diags := types.MapValue(types.StringType, inputResultMap)
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		data.Input = inputMapVal
-
-		outputMapVal, diags := types.MapValue(types.StringType, resultMap)
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		data.Output = outputMapVal
+	createCmd := strings.Fields(crud.Create.ValueString())
+	if len(createCmd) == 0 {
+		resp.Diagnostics.AddError("Invalid Create Command", "Create command cannot be empty")
+		return
 	}
 
-	// Save updated data into Terraform state
-	resp.Diagnostics.Append(resp.State.Set(ctx, data)...)
+	payloadBytes, err := r.convertToPayload(&data, nil)
+	if err != nil {
+		resp.Diagnostics.AddError("Payload Creation Failed", err.Error())
+		return
+	}
+
+	var payload scriptPayload
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		resp.Diagnostics.AddError("Payload Unmarshal Failed", err.Error())
+		return
+	}
+
+	result, err := r.executeScript(ctx, createCmd, payload)
+	if err != nil {
+		resp.Diagnostics.AddError("Create Script Failed", err.Error())
+		return
+	}
+
+	if id, exists := result["id"]; exists {
+		if idStr, ok := id.(string); ok {
+			data.Id = types.StringValue(idStr)
+		}
+	}
+
+	if data.Id.IsNull() || data.Id.ValueString() == "" {
+		resp.Diagnostics.AddError("Create Script Error", "Create script must return an 'id' field")
+		return
+	}
+
+	outputValue := r.mapToDynamic(result)
+	data.Output = outputValue
+
+	// Update input with any matching keys from output
+	if !data.Input.IsNull() && !data.Input.IsUnknown() {
+		updatedInput := r.mergeInputWithOutput(data.Input, result)
+		data.Input = updatedInput
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *CustomResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state CustomResourceModel
+func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var data customCrudResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
-	// Read Terraform prior state data into the model
+	crud, err := r.getCrudCommands(&data)
+	if err != nil {
+		resp.Diagnostics.AddError("Error getting CRUD commands", err.Error())
+		return
+	}
+
+	readCmd := strings.Fields(crud.Read.ValueString())
+	if len(readCmd) == 0 {
+		resp.Diagnostics.AddError("Invalid Read Command", "Read command cannot be empty")
+		return
+	}
+
+	payloadBytes, err := r.convertToPayload(nil, &data)
+	if err != nil {
+		resp.Diagnostics.AddError("Payload Creation Failed", err.Error())
+		return
+	}
+
+	var payload scriptPayload
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		resp.Diagnostics.AddError("Payload Unmarshal Failed", err.Error())
+		return
+	}
+
+	result, err := r.executeScript(ctx, readCmd, payload)
+	if err != nil {
+		resp.Diagnostics.AddError("Read Script Failed", err.Error())
+		return
+	}
+
+	newOutput := r.mapToDynamic(result)
+	data.Output = newOutput
+	data.Input = r.mergeInputWithOutput(data.Input, result)
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+}
+
+func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan customCrudResourceModel
+	var state customCrudResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	// Convert input map to JSON string for script execution
-
-	scriptInputMap := make(map[string]string)
-
-	outputMap := state.Output.Elements()
-	for key, val := range outputMap {
-		strVal, ok := val.(types.String)
-		if ok && !strVal.IsUnknown() && !strVal.IsNull() {
-			scriptInputMap[key] = strVal.ValueString()
-			tflog.Debug(ctx, "Update input map from output", map[string]interface{}{
-				"key":   key,
-				"value": strVal.ValueString(),
-			})
-		}
-	}
-
-	inputMap := state.Input.Elements()
-	for key, val := range inputMap {
-		strVal, ok := val.(types.String)
-		if ok && !strVal.IsUnknown() && !strVal.IsNull() {
-			scriptInputMap[key] = strVal.ValueString()
-			tflog.Debug(ctx, "Update input map from input", map[string]interface{}{
-				"key":   key,
-				"value": strVal.ValueString(),
-			})
-		}
-	}
-
-	deleteInputJSON, err := json.Marshal(scriptInputMap)
-
+	crud, err := r.getCrudCommands(&plan)
 	if err != nil {
-		resp.Diagnostics.AddError(
-			"Input Conversion Failed",
-			fmt.Sprintf("Failed to convert input to JSON: %s", err.Error()),
-		)
+		resp.Diagnostics.AddError("Error getting CRUD commands", err.Error())
 		return
 	}
 
-	// Execute delete script
-	_, err = r.executeScript(ctx, state.DeleteScript, string(deleteInputJSON))
+	if crud.Update.IsNull() {
+		resp.Diagnostics.AddError("Update Not Supported", "No update command provided, resource requires recreation")
+		return
+	}
+
+	updateCmd := strings.Fields(crud.Update.ValueString())
+	if len(updateCmd) == 0 {
+		resp.Diagnostics.AddError("Invalid Update Command", "Update command cannot be empty")
+		return
+	}
+
+	payloadBytes, err := r.convertToPayload(&plan, &state)
 	if err != nil {
-		resp.Diagnostics.AddError(
-			"Delete Script Execution Failed",
-			fmt.Sprintf("Failed to execute delete script: %s", err.Error()),
-		)
+		resp.Diagnostics.AddError("Payload Creation Failed", err.Error())
+		return
+	}
+
+	var payload scriptPayload
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		resp.Diagnostics.AddError("Payload Unmarshal Failed", err.Error())
+		return
+	}
+
+	result, err := r.executeScript(ctx, updateCmd, payload)
+	if err != nil {
+		resp.Diagnostics.AddError("Update Script Failed", err.Error())
+		return
+	}
+
+	newOutput := r.mapToDynamic(result)
+	plan.Output = newOutput
+
+	if id, exists := result["id"]; exists {
+		if idStr, ok := id.(string); ok {
+			plan.Id = types.StringValue(idStr)
+		} else {
+			resp.Diagnostics.AddError("Invalid ID Type", "ID returned from update script must be a string")
+			return
+		}
+	} else {
+		plan.Id = state.Id
+	}
+
+	// Update input with any matching keys from output
+	if !plan.Input.IsNull() && !plan.Input.IsUnknown() {
+		updatedInput := r.mergeInputWithOutput(plan.Input, result)
+		plan.Input = updatedInput
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+}
+
+func (r *customCrudResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var data customCrudResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	crud, err := r.getCrudCommands(&data)
+	if err != nil {
+		resp.Diagnostics.AddError("Error getting CRUD commands", err.Error())
+		return
+	}
+
+	deleteCmd := strings.Fields(crud.Delete.ValueString())
+	if len(deleteCmd) == 0 {
+		resp.Diagnostics.AddError("Invalid Delete Command", "Delete command cannot be empty")
+		return
+	}
+
+	payloadBytes, err := r.convertToPayload(nil, &data)
+	if err != nil {
+		resp.Diagnostics.AddError("Payload Creation Failed", err.Error())
+		return
+	}
+
+	var payload scriptPayload
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		resp.Diagnostics.AddError("Payload Unmarshal Failed", err.Error())
+		return
+	}
+
+	_, err = r.executeScript(ctx, deleteCmd, payload)
+	if err != nil {
+		resp.Diagnostics.AddError("Delete Script Failed", err.Error())
 		return
 	}
 }
 
-func (r *CustomResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	var data CustomResourceModel
-
-	var importObj map[string]interface{}
-	err := json.Unmarshal([]byte(req.ID), &importObj)
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Input Conversion Failed",
-			fmt.Sprintf("Failed to convert input to JSON: %s", err.Error()),
-		)
+func (r *customCrudResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts := strings.Split(req.ID, ":")
+	if len(parts) < 2 {
+		resp.Diagnostics.AddError("Invalid Import ID", "Import ID must be in format 'create_cmd,read_cmd,update_cmd,delete_cmd:id'")
 		return
 	}
 
-	getScriptList := func(key string) types.List {
-		if val, ok := importObj[key]; ok {
-			if arr, ok := val.([]interface{}); ok {
-				var values []attr.Value
-				for _, v := range arr {
-					if s, ok := v.(string); ok {
-						values = append(values, types.StringValue(s))
-					}
-				}
-				list, diags := types.ListValue(types.StringType, values)
-				if diags.HasError() {
-					return types.ListNull(types.StringType)
-				}
-				return list
-			}
-		}
-		return types.ListNull(types.StringType)
+	id := parts[len(parts)-1]
+	cmds := strings.Split(parts[0], ",")
+
+	if len(cmds) < 3 {
+		resp.Diagnostics.AddError("Invalid Import ID", fmt.Sprintf("Must provide at least create, read, and delete commands, received: %+v", cmds))
+		return
 	}
 
-	data.CreateScript = getScriptList("create_script")
-	data.ReadScript = getScriptList("read_script")
-	data.DeleteScript = getScriptList("delete_script")
-	data.UpdateScript = getScriptList("update_script")
-
-	if outputVal, ok := importObj["output"]; ok {
-		if outputMap, ok := outputVal.(map[string]interface{}); ok {
-			outputAttrMap := make(map[string]attr.Value)
-			for k, v := range outputMap {
-				if s, ok := v.(string); ok {
-					outputAttrMap[k] = types.StringValue(s)
-				}
-			}
-			outputMapVal, diags := types.MapValueFrom(ctx, types.StringType, outputAttrMap)
-			resp.Diagnostics.Append(diags...)
-			if resp.Diagnostics.HasError() {
-				return
-			}
-			data.Output = outputMapVal
-		}
+	// Create the hooks block object
+	hooksAttrs := map[string]attr.Value{
+		"create": types.StringValue(cmds[0]),
+		"read":   types.StringValue(cmds[1]),
+		"update": types.StringValue(cmds[2]),
+		"delete": types.StringValue(cmds[3]),
 	}
-	data.Input = types.MapNull(types.StringType)
+
+	hooksObj, diags := types.ObjectValue(
+		map[string]attr.Type{
+			"create": types.StringType,
+			"read":   types.StringType,
+			"update": types.StringType,
+			"delete": types.StringType,
+		},
+		hooksAttrs,
+	)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	hooksList, diags := types.ListValue(
+		types.ObjectType{
+			AttrTypes: map[string]attr.Type{
+				"create": types.StringType,
+				"read":   types.StringType,
+				"update": types.StringType,
+				"delete": types.StringType,
+			},
+		},
+		[]attr.Value{hooksObj},
+	)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	data := customCrudResourceModel{
+		Id:    types.StringValue(id),
+		Hooks: hooksList,
+	}
+
+	crud, err := r.getCrudCommands(&data)
+	if err != nil {
+		resp.Diagnostics.AddError("Error getting CRUD commands", err.Error())
+		return
+	}
+
+	readCmd := strings.Fields(crud.Read.ValueString())
+	if len(readCmd) == 0 {
+		resp.Diagnostics.AddError("Invalid Read Command", "Read command cannot be empty")
+		return
+	}
+
+	payload := scriptPayload{
+		Id:     id,
+		Input:  nil,
+		Output: nil,
+	}
+
+	// Use read to populate the state
+	result, err := r.executeScript(ctx, readCmd, payload)
+	if err != nil {
+		resp.Diagnostics.AddError("Import Read Failed", err.Error())
+		return
+	}
+
+	outputValue := r.mapToDynamic(result)
+	data.Output = outputValue
+
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-// executeScript runs the provided script with input and returns the output.
-func (r *CustomResource) executeScript(ctx context.Context, scriptList types.List, input string) (string, error) {
-	tflog.Debug(ctx, "Executing script", map[string]interface{}{
-		"script": scriptList.String(),
-		"input":  input,
-	})
+func (r *customCrudResource) mapToDynamic(data interface{}) types.Dynamic {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		attrs := make(map[string]attr.Value)
+		for k, val := range v {
+			attrs[k] = r.interfaceToAttrValue(val)
+		}
+		objType := types.ObjectType{AttrTypes: make(map[string]attr.Type)}
+		for k := range attrs {
+			objType.AttrTypes[k] = attrs[k].Type(context.Background())
+		}
+		objVal, _ := types.ObjectValue(objType.AttrTypes, attrs)
+		return types.DynamicValue(objVal)
+	default:
+		return types.DynamicValue(r.interfaceToAttrValue(v))
+	}
+}
 
-	// Convert the script list to string array
-	var scriptParts []string
-	diags := scriptList.ElementsAs(ctx, &scriptParts, false)
-	if diags.HasError() {
-		return "", fmt.Errorf("failed to parse script command: %v", diags)
+func (r *customCrudResource) interfaceToAttrValue(data interface{}) attr.Value {
+	switch v := data.(type) {
+	case string:
+		return types.StringValue(v)
+	case float64:
+		return types.NumberValue(big.NewFloat(v))
+	case bool:
+		return types.BoolValue(v)
+	case []interface{}:
+		elements := make([]attr.Value, len(v))
+		var elemType attr.Type = types.StringType // default
+		for i, elem := range v {
+			elements[i] = r.interfaceToAttrValue(elem)
+			if i == 0 {
+				elemType = elements[i].Type(context.Background())
+			}
+		}
+		listVal, _ := types.ListValue(elemType, elements)
+		return listVal
+	case map[string]interface{}:
+		attrs := make(map[string]attr.Value)
+		attrTypes := make(map[string]attr.Type)
+		for k, val := range v {
+			attrs[k] = r.interfaceToAttrValue(val)
+			attrTypes[k] = attrs[k].Type(context.Background())
+		}
+		objVal, _ := types.ObjectValue(attrTypes, attrs)
+		return objVal
+	case nil:
+		return types.StringNull()
+	default:
+		return types.StringValue(fmt.Sprintf("%v", v))
+	}
+}
+
+func (r *customCrudResource) mergeInputWithOutput(input types.Dynamic, output map[string]interface{}) types.Dynamic {
+	if input.IsNull() || input.IsUnknown() {
+		return input
 	}
 
-	if len(scriptParts) == 0 {
-		return "", fmt.Errorf("empty script command")
+	// Convert input to map[string]interface{} via JSON marshaling/unmarshaling
+	inputMap := r.attrValueToInterface(input.UnderlyingValue())
+	inputMapTyped, ok := inputMap.(map[string]interface{})
+	if !ok {
+		return input
 	}
 
-	// Check if the first part is a file path
-	if info, err := os.Stat(scriptParts[0]); err == nil {
-		// Check if the file is executable
-		if info.Mode()&0111 == 0 {
-			return "", fmt.Errorf("script file is not executable: %s", scriptParts[0])
+	merged := make(map[string]interface{})
+	for k, v := range inputMapTyped {
+		merged[k] = v
+	}
+
+	// Update input values with matching output keys
+	for k, v := range output {
+		if _, exists := merged[k]; exists {
+			merged[k] = v
 		}
 	}
 
-	// Execute the command with its arguments
-	cmd := exec.CommandContext(ctx, scriptParts[0], scriptParts[1:]...)
+	return r.mapToDynamic(merged)
+}
 
-	// Set up pipes for stdin, stdout, and stderr
-	cmd.Stdin = strings.NewReader(input)
-
-	// Capture stdout and stderr
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
-
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start command: %w", err)
-	}
-
-	// Read stdout
-	stdoutBytes := make([]byte, 0)
-	stdoutBuf := make([]byte, 1024)
-	for {
-		n, err := stdout.Read(stdoutBuf)
-		if n > 0 {
-			stdoutBytes = append(stdoutBytes, stdoutBuf[:n]...)
+func (r *customCrudResource) attrValueToInterface(val attr.Value) interface{} {
+	switch v := val.(type) {
+	case types.String:
+		if v.IsNull() {
+			return nil
 		}
-		if err != nil {
-			break
+		return v.ValueString()
+	case types.Number:
+		if v.IsNull() {
+			return nil
 		}
-	}
-
-	// Read stderr
-	stderrBytes := make([]byte, 0)
-	stderrBuf := make([]byte, 1024)
-	for {
-		n, err := stderr.Read(stderrBuf)
-		if n > 0 {
-			stderrBytes = append(stderrBytes, stderrBuf[:n]...)
+		f, _ := v.ValueBigFloat().Float64()
+		return f
+	case types.Bool:
+		if v.IsNull() {
+			return nil
 		}
-		if err != nil {
-			break
+		return v.ValueBool()
+	case types.List:
+		if v.IsNull() {
+			return nil
 		}
-	}
-
-	// Wait for command to complete
-	if err := cmd.Wait(); err != nil {
-		// Log stderr if there's an error
-		if len(stderrBytes) > 0 {
-			tflog.Error(ctx, "Script stderr output", map[string]interface{}{
-				"stderr": string(stderrBytes),
-			})
+		elements := v.Elements()
+		result := make([]interface{}, len(elements))
+		for i, elem := range elements {
+			result[i] = r.attrValueToInterface(elem)
 		}
-		return "", fmt.Errorf("script execution failed: %w", err)
+		return result
+	case types.Object:
+		if v.IsNull() {
+			return nil
+		}
+		attrs := v.Attributes()
+		result := make(map[string]interface{})
+		for k, attr := range attrs {
+			result[k] = r.attrValueToInterface(attr)
+		}
+		return result
+	default:
+		return nil
 	}
-
-	// Log stderr as info if command succeeded but there's stderr output
-	if len(stderrBytes) > 0 {
-		tflog.Info(ctx, "Script stderr output", map[string]interface{}{
-			"stderr": string(stderrBytes),
-		})
-	}
-
-	output := string(stdoutBytes)
-	tflog.Debug(ctx, "Script executed successfully", map[string]interface{}{
-		"output": output,
-	})
-
-	return output, nil
 }

@@ -30,10 +30,12 @@ The provider allows you to define resources that use custom scripts for their li
 
 ```hcl
 resource "customcrud_resource" "example" {
-  create_script = ["./scripts/create.sh"]
-  read_script   = ["./scripts/read.sh"]
-  update_script = ["./scripts/update.sh"]
-  delete_script = ["./scripts/delete.sh"]
+  hooks {
+    create = "./scripts/create.sh"
+    read   = "./scripts/read.sh"
+    update = "./scripts/update.sh"
+    delete = "./scripts/delete.sh"
+  }
 
   input = {
     key = "value"
@@ -55,8 +57,15 @@ Your scripts should:
 Scripts receive input as JSON:
 ```json
 {
-  "key": "value",
-  ...
+  "id": "resource-id",  
+  "input": {
+    "key": "value",
+    ...
+  },
+  "output": {
+    "key": "value",
+    ...
+  }
 }
 ```
 
@@ -68,6 +77,8 @@ Scripts should return output as JSON:
   ...
 }
 ```
+
+The `id` field is required in the output of the create script and will be used to track the resource. The output from scripts will be stored in the resource's `output` attribute and can be referenced in other resources.
 
 ## Development
 

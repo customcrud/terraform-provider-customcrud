@@ -60,7 +60,7 @@ func (p *CustomCRUDProvider) Configure(ctx context.Context, req provider.Configu
 
 func (p *CustomCRUDProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
-		NewCustomResource,
+		NewCustomCrudResource,
 	}
 }
 
