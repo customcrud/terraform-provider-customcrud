@@ -420,19 +420,44 @@ func (r *CustomResource) Update(ctx context.Context, req resource.UpdateRequest,
 }
 
 func (r *CustomResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var data CustomResourceModel
+	var state CustomResourceModel
 
 	// Read Terraform prior state data into the model
-	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	// Convert input map to JSON string for script execution
-	var inputMap map[string]string
-	data.Input.ElementsAs(ctx, &inputMap, false)
 
-	deleteInputJSON, err := json.Marshal(inputMap)
+	scriptInputMap := make(map[string]string)
+
+	outputMap := state.Output.Elements()
+	for key, val := range outputMap {
+		strVal, ok := val.(types.String)
+		if ok && !strVal.IsUnknown() && !strVal.IsNull() {
+			scriptInputMap[key] = strVal.ValueString()
+			tflog.Debug(ctx, "Update input map from output", map[string]interface{}{
+				"key":   key,
+				"value": strVal.ValueString(),
+			})
+		}
+	}
+
+	inputMap := state.Input.Elements()
+	for key, val := range inputMap {
+		strVal, ok := val.(types.String)
+		if ok && !strVal.IsUnknown() && !strVal.IsNull() {
+			scriptInputMap[key] = strVal.ValueString()
+			tflog.Debug(ctx, "Update input map from input", map[string]interface{}{
+				"key":   key,
+				"value": strVal.ValueString(),
+			})
+		}
+	}
+
+	deleteInputJSON, err := json.Marshal(scriptInputMap)
+
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Input Conversion Failed",
@@ -442,7 +467,7 @@ func (r *CustomResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	}
 
 	// Execute delete script
-	_, err = r.executeScript(ctx, data.DeleteScript, string(deleteInputJSON))
+	_, err = r.executeScript(ctx, state.DeleteScript, string(deleteInputJSON))
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Delete Script Execution Failed",
