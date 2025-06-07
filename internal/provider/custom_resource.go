@@ -21,7 +21,6 @@ import (
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &CustomResource{}
 var _ resource.ResourceWithImportState = &CustomResource{}
-var _ resource.ResourceWithModifyPlan = &CustomResource{}
 
 func NewCustomResource() resource.Resource {
 	return &CustomResource{}
@@ -608,75 +607,4 @@ func (r *CustomResource) executeScript(ctx context.Context, scriptList types.Lis
 	})
 
 	return output, nil
-}
-
-// ModifyPlan implements resource.ResourceWithModifyPlan.
-func (r *CustomResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	var plan, state CustomResourceModel
-
-	// If plan is null, this is a delete operation - nothing to modify
-	if req.Plan.Raw.IsNull() {
-		return
-	}
-
-	// Read plan and state
-	diags := req.Plan.Get(ctx, &plan)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// If state is null, this is a create operation - set output to match input
-	if req.State.Raw.IsNull() {
-		plan.Output = types.MapUnknown(types.StringType)
-		resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
-		return
-	}
-
-	diags = req.State.Get(ctx, &state)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
-	// If there's no change in input, keep the existing output
-	if plan.Input.Equal(state.Input) {
-		plan.Output = state.Output
-		resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
-		return
-	}
-
-	// Get current output values
-	var currentOutput map[string]string
-	if !state.Output.IsNull() {
-		state.Output.ElementsAs(ctx, &currentOutput, false)
-	} else {
-		currentOutput = make(map[string]string)
-	}
-
-	// Get planned input values
-	var planInput map[string]string
-	plan.Input.ElementsAs(ctx, &planInput, false)
-
-	// Create a map of predicted output values starting with current output
-	outputMap := make(map[string]attr.Value)
-	for k, v := range currentOutput {
-		outputMap[k] = types.StringValue(v)
-	}
-
-	// Merge in the planned input changes
-	for k, v := range planInput {
-		outputMap[k] = types.StringValue(v)
-	}
-
-	// Set the predicted output
-	outputMapVal, diags := types.MapValue(types.StringType, outputMap)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	plan.Output = outputMapVal
-
-	// Set the modified plan
-	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
 }
