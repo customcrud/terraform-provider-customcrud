@@ -251,6 +251,10 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 	if id, exists := result["id"]; exists {
 		if idStr, ok := id.(string); ok {
 			data.Id = types.StringValue(idStr)
+		} else {
+			// convert to string if necessary
+			idStr = fmt.Sprintf("%v", id)
+			data.Id = types.StringValue(idStr)
 		}
 	}
 
