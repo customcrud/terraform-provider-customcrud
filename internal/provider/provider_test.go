@@ -4,6 +4,8 @@
 package provider
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
@@ -18,7 +20,27 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 }
 
 func testAccPreCheck(t *testing.T) {
-	// You can add code here to run prior to any test case execution, for example assertions
-	// about the appropriate environment variables being set are common to see in a pre-check
-	// function.
+	// Get the project root directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current working directory: %v", err)
+	}
+	projectRoot := filepath.Join(cwd, "..", "..")
+	projectRoot, err = filepath.Abs(projectRoot)
+	if err != nil {
+		t.Fatalf("Failed to get absolute path to project root: %v", err)
+	}
+
+	// Create logs directory if it doesn't exist
+	logsDir := filepath.Join(projectRoot, "logs")
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		t.Fatalf("Failed to create logs directory: %v", err)
+	}
+
+	logFile := filepath.Join(logsDir, "terraform-provider-customcrud.log")
+	t.Logf("Log file path: %s", logFile)
+
+	// Enable debug logging
+	t.Setenv("TF_LOG", "DEBUG")
+	t.Setenv("TF_LOG_PATH", logFile)
 }

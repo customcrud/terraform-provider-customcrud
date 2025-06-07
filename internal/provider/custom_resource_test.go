@@ -4,86 +4,86 @@
 package provider
 
 import (
-	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
 func TestAccExampleResource(t *testing.T) {
-	// Get absolute paths to the CRUD scripts
-	crudDir := filepath.Join("..", "..", "crud")
-	createScript := filepath.Join(crudDir, "create.sh")
-	readScript := filepath.Join(crudDir, "read.sh")
-	updateScript := filepath.Join(crudDir, "update.sh")
-	deleteScript := filepath.Join(crudDir, "delete.sh")
+	content := "Initial content"
+	updatedContent := "Updated content"
 
-	// Create import ID
-	importID := map[string]interface{}{
-		"create_script": []string{createScript},
-		"read_script":   []string{readScript},
-		"update_script": []string{updateScript},
-		"delete_script": []string{deleteScript},
-		"output": map[string]string{
-			"id":       "test.txt",
-			"filename": "test.txt",
-			"content":  "Hello, World!",
-		},
-	}
-	importIDBytes, err := json.Marshal(importID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	createScript := "../../crud/create.sh"
+	readScript := "../../crud/read.sh"
+	updateScript := "../../crud/update.sh"
+	deleteScript := "../../crud/delete.sh"
 
+	// Single test case with all steps including import
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
-			// Create and Read testing
+			// Create testing
 			{
-				Config: testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, "test.txt", "Initial content"),
+				Config: testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, content),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("customcrud_resource.test", "output.filename", "test.txt"),
-					resource.TestCheckResourceAttr("customcrud_resource.test", "output.content", "Initial content"),
+					resource.TestCheckResourceAttr("customcrud_resource.test", "output.content", content),
+					resource.TestCheckResourceAttrSet("customcrud_resource.test", "id"),
 				),
+			},
+			// Import testing - this should happen after create but before update
+			{
+				Config:                  testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, content),
+				ResourceName:            "customcrud_resource.test",
+				ImportState:             true,
+				ImportStateIdFunc:       testAccResourceImportStateIdFunc("customcrud_resource.test", createScript, readScript, updateScript, deleteScript),
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"hooks", "input"},
 			},
 			// Update testing
 			{
-				Config: testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, "test.txt", "Updated content"),
+				Config: testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, updatedContent),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("customcrud_resource.test", "output.filename", "test.txt"),
-					resource.TestCheckResourceAttr("customcrud_resource.test", "output.content", "Updated content"),
+					resource.TestCheckResourceAttr("customcrud_resource.test", "output.content", updatedContent),
 				),
-			},
-			// ImportState testing
-			{
-				ResourceName:                         "customcrud_resource.test",
-				ImportState:                          true,
-				ImportStateId:                        string(importIDBytes),
-				ImportStateVerify:                    true,
-				ImportStateVerifyIdentifierAttribute: "output.id",
-				ImportStateVerifyIgnore: []string{
-					"input",
-				},
 			},
 			// Delete testing automatically occurs in TestCase
 		},
 	})
 }
 
-func testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, filename, content string) string {
+// Helper function to generate import state ID.
+func testAccResourceImportStateIdFunc(resourceName, createScript, readScript, updateScript, deleteScript string) resource.ImportStateIdFunc {
+	return func(s *terraform.State) (string, error) {
+		rs, ok := s.RootModule().Resources[resourceName]
+		if !ok {
+			return "", fmt.Errorf("resource not found: %s", resourceName)
+		}
+
+		if rs.Primary.ID == "" {
+			return "", fmt.Errorf("resource ID not set")
+		}
+
+		// Format: create_cmd,read_cmd,update_cmd,delete_cmd:id
+		return fmt.Sprintf("%s,%s,%s,%s:%s",
+			createScript, readScript, updateScript, deleteScript, rs.Primary.ID), nil
+	}
+}
+
+func testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, content string) string {
 	return fmt.Sprintf(`
 resource "customcrud_resource" "test" {
-  create_script = [%[1]q]
-  read_script  = [%[2]q]
-  update_script = [%[3]q]
-  delete_script = [%[4]q]
+  hooks {
+    create = %[1]q
+    read   = %[2]q
+    update = %[3]q
+    delete = %[4]q
+  }
   input = {
-    filename = %[5]q
-    content = %[6]q
+    content = %[5]q
   }
 }
-`, createScript, readScript, updateScript, deleteScript, filename, content)
+`, createScript, readScript, updateScript, deleteScript, content)
 }

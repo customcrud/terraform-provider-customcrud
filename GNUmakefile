@@ -2,9 +2,9 @@ default: fmt lint install generate
 
 build:
 	go build -o terraform-provider-customcrud
-	cp terraform-provider-customcrud ~/.terraform.d/plugins/terraform.local/custom/customcrud/1.0.0/linux_amd64/
-	rm .terraform.lock.hcl
-	terraform init
+	cp terraform-provider-customcrud ~/.terraform.d/plugins/registry.terraform.io/customcrud/customcrud/1.0.0/linux_amd64/
+	rm -f examples/.terraform.lock.hcl
+	cd examples && terraform init
 
 install: build
 	go install -v ./...
