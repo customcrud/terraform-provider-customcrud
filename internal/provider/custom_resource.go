@@ -373,8 +373,9 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 		if idStr, ok := id.(string); ok {
 			plan.Id = types.StringValue(idStr)
 		} else {
-			resp.Diagnostics.AddError("Invalid ID Type", "ID returned from update script must be a string")
-			return
+			// convert to string if necessary
+			idStr = fmt.Sprintf("%v", id)
+			plan.Id = types.StringValue(idStr)
 		}
 	} else {
 		plan.Id = state.Id
