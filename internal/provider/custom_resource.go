@@ -428,27 +428,41 @@ func (r *customCrudResource) Delete(ctx context.Context, req resource.DeleteRequ
 	}
 }
 
+type importStateData struct {
+	Id     string                 `json:"id"`
+	Hooks  map[string]string      `json:"hooks"`
+	Input  map[string]interface{} `json:"input"`
+	Output map[string]interface{} `json:"output"`
+}
+
 func (r *customCrudResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	parts := strings.Split(req.ID, ":")
-	if len(parts) < 2 {
-		resp.Diagnostics.AddError("Invalid Import ID", "Import ID must be in format 'create_cmd,read_cmd,update_cmd,delete_cmd:id'")
+	var importData importStateData
+	if err := json.Unmarshal([]byte(req.ID), &importData); err != nil {
+		resp.Diagnostics.AddError("Invalid Import JSON", fmt.Sprintf("Failed to parse import JSON: %v. Import ID must be a JSON string containing id, hooks, input, and output fields.", err))
 		return
 	}
 
-	id := parts[len(parts)-1]
-	cmds := strings.Split(parts[0], ",")
-
-	if len(cmds) < 3 {
-		resp.Diagnostics.AddError("Invalid Import ID", fmt.Sprintf("Must provide at least create, read, and delete commands, received: %+v", cmds))
+	if importData.Id == "" {
+		resp.Diagnostics.AddError("Invalid Import JSON", "Import JSON must contain a non-empty 'id' field")
 		return
 	}
 
-	// Create the hooks block object
+	if len(importData.Hooks) < 3 {
+		resp.Diagnostics.AddError("Invalid Import JSON", "Import JSON must contain hooks with at least create, read, and delete commands")
+		return
+	}
+
 	hooksAttrs := map[string]attr.Value{
-		"create": types.StringValue(cmds[0]),
-		"read":   types.StringValue(cmds[1]),
-		"update": types.StringValue(cmds[2]),
-		"delete": types.StringValue(cmds[3]),
+		"create": types.StringValue(importData.Hooks["create"]),
+		"read":   types.StringValue(importData.Hooks["read"]),
+		"delete": types.StringValue(importData.Hooks["delete"]),
+	}
+
+	// Add update command if provided
+	if updateCmd, ok := importData.Hooks["update"]; ok {
+		hooksAttrs["update"] = types.StringValue(updateCmd)
+	} else {
+		hooksAttrs["update"] = types.StringNull()
 	}
 
 	hooksObj, diags := types.ObjectValue(
@@ -482,10 +496,19 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 	}
 
 	data := customCrudResourceModel{
-		Id:    types.StringValue(id),
+		Id:    types.StringValue(importData.Id),
 		Hooks: hooksList,
 	}
 
+	if importData.Input != nil {
+		data.Input = r.mapToDynamic(importData.Input)
+	}
+
+	if importData.Output != nil {
+		data.Output = r.mapToDynamic(importData.Output)
+	}
+
+	// Perform read operation to get current state
 	crud, err := r.getCrudCommands(&data)
 	if err != nil {
 		resp.Diagnostics.AddError("Error getting CRUD commands", err.Error())
@@ -499,9 +522,9 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 	}
 
 	payload := scriptPayload{
-		Id:     id,
-		Input:  nil,
-		Output: nil,
+		Id:     importData.Id,
+		Input:  importData.Input,
+		Output: importData.Output,
 	}
 
 	// Use read to populate the state
@@ -513,6 +536,7 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 
 	outputValue := r.mapToDynamic(result)
 	data.Output = outputValue
+	data.Input = r.mergeInputWithOutput(data.Input, result)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

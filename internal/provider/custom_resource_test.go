@@ -4,6 +4,7 @@
 package provider
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -66,9 +67,38 @@ func testAccResourceImportStateIdFunc(resourceName, createScript, readScript, up
 			return "", fmt.Errorf("resource ID not set")
 		}
 
-		// Format: create_cmd,read_cmd,update_cmd,delete_cmd:id
-		return fmt.Sprintf("%s,%s,%s,%s:%s",
-			createScript, readScript, updateScript, deleteScript, rs.Primary.ID), nil
+		importData := importStateData{
+			Id: rs.Primary.ID,
+			Hooks: map[string]string{
+				"create": createScript,
+				"read":   readScript,
+				"update": updateScript,
+				"delete": deleteScript,
+			},
+		}
+
+		// Get input from state if it exists
+		if input, ok := rs.Primary.Attributes["input"]; ok {
+			var inputMap map[string]interface{}
+			if err := json.Unmarshal([]byte(input), &inputMap); err == nil {
+				importData.Input = inputMap
+			}
+		}
+
+		// Get output from state if it exists
+		if output, ok := rs.Primary.Attributes["output"]; ok {
+			var outputMap map[string]interface{}
+			if err := json.Unmarshal([]byte(output), &outputMap); err == nil {
+				importData.Output = outputMap
+			}
+		}
+
+		jsonData, err := json.Marshal(importData)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal import data: %v", err)
+		}
+
+		return string(jsonData), nil
 	}
 }
 
