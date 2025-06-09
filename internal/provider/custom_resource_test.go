@@ -16,10 +16,10 @@ func TestAccExampleResource(t *testing.T) {
 	content := "Initial content"
 	updatedContent := "Updated content"
 
-	createScript := "../../crud/create.sh"
-	readScript := "../../crud/read.sh"
-	updateScript := "../../crud/update.sh"
-	deleteScript := "../../crud/delete.sh"
+	createScript := "../../examples/crud/create.sh"
+	readScript := "../../examples/crud/read.sh"
+	updateScript := "../../examples/crud/update.sh"
+	deleteScript := "../../examples/crud/delete.sh"
 
 	// Single test case with all steps including import
 	resource.Test(t, resource.TestCase{
