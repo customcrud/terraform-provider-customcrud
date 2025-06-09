@@ -137,7 +137,7 @@ type scriptPayload struct {
 	Output interface{} `json:"output"`
 }
 
-func (r *customCrudResource) convertToPayload(plan *customCrudResourceModel, state *customCrudResourceModel) ([]byte, error) {
+func (r *customCrudResource) convertToPayload(plan *customCrudResourceModel, state *customCrudResourceModel) scriptPayload {
 	var inputValue interface{}
 	var outputValue interface{}
 	id := ""
@@ -157,13 +157,11 @@ func (r *customCrudResource) convertToPayload(plan *customCrudResourceModel, sta
 		}
 	}
 
-	payload := scriptPayload{
+	return scriptPayload{
 		Id:     id,
 		Input:  inputValue,
 		Output: outputValue,
 	}
-
-	return json.Marshal(payload)
 }
 
 func (r *customCrudResource) executeScript(ctx context.Context, cmd []string, payload scriptPayload) (map[string]interface{}, error) {
@@ -203,6 +201,10 @@ func (r *customCrudResource) executeScript(ctx context.Context, cmd []string, pa
 		"stderr": stderr.String(),
 	})
 
+	if stdout.Len() == 0 {
+		tflog.Debug(ctx, "Script output is empty")
+		return nil, nil
+	}
 	var result map[string]interface{}
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		return nil, fmt.Errorf("failed to parse script output: %w", err)
@@ -264,21 +266,13 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
-	payloadBytes, err := r.convertToPayload(&data, nil)
-	if err != nil {
-		resp.Diagnostics.AddError("Payload Creation Failed", err.Error())
-		return
-	}
-
-	var payload scriptPayload
-	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-		resp.Diagnostics.AddError("Payload Unmarshal Failed", err.Error())
-		return
-	}
-
-	result, err := r.executeScript(ctx, createCmd, payload)
+	result, err := r.executeScript(ctx, createCmd, r.convertToPayload(&data, nil))
 	if err != nil {
 		resp.Diagnostics.AddError("Create Script Failed", err.Error())
+		return
+	}
+	if result == nil {
+		resp.Diagnostics.AddError("Read Script Failed", "Read script returned nil output")
 		return
 	}
 
@@ -328,21 +322,13 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 		return
 	}
 
-	payloadBytes, err := r.convertToPayload(nil, &data)
-	if err != nil {
-		resp.Diagnostics.AddError("Payload Creation Failed", err.Error())
-		return
-	}
-
-	var payload scriptPayload
-	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-		resp.Diagnostics.AddError("Payload Unmarshal Failed", err.Error())
-		return
-	}
-
-	result, err := r.executeScript(ctx, readCmd, payload)
+	result, err := r.executeScript(ctx, readCmd, r.convertToPayload(nil, &data))
 	if err != nil {
 		resp.Diagnostics.AddError("Read Script Failed", err.Error())
+		return
+	}
+	if result == nil {
+		resp.Diagnostics.AddError("Read Script Failed", "Read script returned nil output")
 		return
 	}
 
@@ -377,21 +363,13 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
-	payloadBytes, err := r.convertToPayload(&plan, &state)
-	if err != nil {
-		resp.Diagnostics.AddError("Payload Creation Failed", err.Error())
-		return
-	}
-
-	var payload scriptPayload
-	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-		resp.Diagnostics.AddError("Payload Unmarshal Failed", err.Error())
-		return
-	}
-
-	result, err := r.executeScript(ctx, updateCmd, payload)
+	result, err := r.executeScript(ctx, updateCmd, r.convertToPayload(&plan, &state))
 	if err != nil {
 		resp.Diagnostics.AddError("Update Script Failed", err.Error())
+		return
+	}
+	if result == nil {
+		resp.Diagnostics.AddError("Read Script Failed", "Read script returned nil output")
 		return
 	}
 
@@ -438,19 +416,7 @@ func (r *customCrudResource) Delete(ctx context.Context, req resource.DeleteRequ
 		return
 	}
 
-	payloadBytes, err := r.convertToPayload(nil, &data)
-	if err != nil {
-		resp.Diagnostics.AddError("Payload Creation Failed", err.Error())
-		return
-	}
-
-	var payload scriptPayload
-	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-		resp.Diagnostics.AddError("Payload Unmarshal Failed", err.Error())
-		return
-	}
-
-	_, err = r.executeScript(ctx, deleteCmd, payload)
+	_, err = r.executeScript(ctx, deleteCmd, r.convertToPayload(nil, &data))
 	if err != nil {
 		resp.Diagnostics.AddError("Delete Script Failed", err.Error())
 		return
