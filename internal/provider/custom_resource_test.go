@@ -16,10 +16,10 @@ func TestAccExampleResource(t *testing.T) {
 	content := "Initial content"
 	updatedContent := "Updated content"
 
-	createScript := "../../examples/crud/create.sh"
-	readScript := "../../examples/crud/read.sh"
-	updateScript := "../../examples/crud/update.sh"
-	deleteScript := "../../examples/crud/delete.sh"
+	createScript := "../../examples/file/create.sh"
+	readScript := "../../examples/file/read.sh"
+	updateScript := "../../examples/file/update.sh"
+	deleteScript := "../../examples/file/delete.sh"
 
 	// Single test case with all steps including import
 	resource.Test(t, resource.TestCase{
@@ -51,6 +51,45 @@ func TestAccExampleResource(t *testing.T) {
 				),
 			},
 			// Delete testing automatically occurs in TestCase
+		},
+	})
+}
+
+func TestAccExampleResourceEdgeCases(t *testing.T) {
+	createScript := "../../examples/test_edgecases/create.sh"
+	readScript := "../../examples/test_edgecases/read.sh"
+	deleteScript := "../../examples/test_edgecases/delete.sh"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccExampleResourceEdgeCaseConfig(createScript, readScript, deleteScript),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("customcrud.test", "output.a.#", "6"),
+					resource.TestCheckResourceAttr("customcrud.test", "output.a.0", "1"),
+					resource.TestCheckResourceAttr("customcrud.test", "output.a.1", "2"),
+					resource.TestCheckResourceAttr("customcrud.test", "output.a.2", "false"),
+					// resource.TestCheckResourceAttr("customcrud.test", "output.a.3", ""), // null value can't be checked directly
+
+					resource.TestCheckResourceAttr("customcrud.test", "output.a.4.0.b", "3"),
+					resource.TestCheckResourceAttr("customcrud.test", "output.a.5.#", "3"),
+					resource.TestCheckResourceAttr("customcrud.test", "output.a.5.0", "1"),
+					resource.TestCheckResourceAttr("customcrud.test", "output.a.5.1", "2"),
+					resource.TestCheckResourceAttr("customcrud.test", "output.a.5.2", "3"),
+				),
+				// jq -n '{id: 1, a: [1, "2", false, null, [{"b": 3}], [1, 2, 3]]}'
+			},
+			// Import testing
+			{
+				Config:                  testAccExampleResourceEdgeCaseConfig(createScript, readScript, deleteScript),
+				ResourceName:            "customcrud.test",
+				ImportState:             true,
+				ImportStateIdFunc:       testAccResourceImportStateIdFunc("customcrud.test", createScript, readScript, "", deleteScript),
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"hooks"},
+			},
 		},
 	})
 }
@@ -116,4 +155,16 @@ resource "customcrud" "test" {
   }
 }
 `, createScript, readScript, updateScript, deleteScript, content)
+}
+
+func testAccExampleResourceEdgeCaseConfig(createScript, readScript, deleteScript string) string {
+	return fmt.Sprintf(`
+resource "customcrud" "test" {
+  hooks {
+    create = %[1]q
+    read   = %[2]q
+    delete = %[3]q
+  }
+}
+`, createScript, readScript, deleteScript)
 }

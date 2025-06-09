@@ -19,6 +19,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
@@ -503,7 +504,6 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 		data.Output = r.mapToDynamic(importData.Output)
 	}
 
-	// Perform read operation to get current state
 	crud, err := r.getCrudCommands(&data)
 	if err != nil {
 		resp.Diagnostics.AddError("Error getting CRUD commands", err.Error())
@@ -536,6 +536,15 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
+func (r *customCrudResource) isSimpleType(t attr.Type) bool {
+	switch t.(type) {
+	case basetypes.StringType, basetypes.NumberType, basetypes.BoolType:
+		return true
+	default:
+		return false
+	}
+}
+
 func (r *customCrudResource) mapToDynamic(data interface{}) types.Dynamic {
 	switch v := data.(type) {
 	case map[string]interface{}:
@@ -560,19 +569,54 @@ func (r *customCrudResource) interfaceToAttrValue(data interface{}) attr.Value {
 		return types.StringValue(v)
 	case float64:
 		return types.NumberValue(big.NewFloat(v))
+	case int:
+		return types.NumberValue(big.NewFloat(float64(v)))
 	case bool:
 		return types.BoolValue(v)
 	case []interface{}:
+		if len(v) == 0 {
+			// Empty array - default to dynamic
+			listVal, _ := types.ListValue(types.DynamicType, []attr.Value{})
+			return listVal
+		}
+
 		elements := make([]attr.Value, len(v))
-		var elemType attr.Type = types.StringType // default
+
+		// First pass: convert all elements
 		for i, elem := range v {
 			elements[i] = r.interfaceToAttrValue(elem)
-			if i == 0 {
-				elemType = elements[i].Type(context.Background())
+		}
+
+		// Check if all elements have the same type
+		firstType := elements[0].Type(context.Background())
+		isHomogeneous := true
+		allSimpleTypes := r.isSimpleType(firstType)
+
+		// Check if all elements have the same type
+		for i := 1; i < len(elements); i++ {
+			currentType := elements[i].Type(context.Background())
+			if !currentType.Equal(firstType) {
+				isHomogeneous = false
+			}
+			// Also verify all elements are simple types
+			if !r.isSimpleType(currentType) {
+				allSimpleTypes = false
 			}
 		}
-		listVal, _ := types.ListValue(elemType, elements)
-		return listVal
+
+		if isHomogeneous && allSimpleTypes {
+			// Homogeneous simple types - use typed list
+			listVal, _ := types.ListValue(firstType, elements)
+			return listVal
+		} else {
+			// Heterogeneous types - use tuple
+			elemTypes := make([]attr.Type, len(elements))
+			for i, elem := range elements {
+				elemTypes[i] = elem.Type(context.Background())
+			}
+			tupleVal, _ := types.TupleValue(elemTypes, elements)
+			return tupleVal
+		}
 	case map[string]interface{}:
 		attrs := make(map[string]attr.Value)
 		attrTypes := make(map[string]attr.Type)
@@ -583,7 +627,7 @@ func (r *customCrudResource) interfaceToAttrValue(data interface{}) attr.Value {
 		objVal, _ := types.ObjectValue(attrTypes, attrs)
 		return objVal
 	case nil:
-		return types.StringNull()
+		return types.DynamicNull()
 	default:
 		return types.StringValue(fmt.Sprintf("%v", v))
 	}
@@ -641,6 +685,21 @@ func (r *customCrudResource) attrValueToInterface(val attr.Value) interface{} {
 		elements := v.Elements()
 		result := make([]interface{}, len(elements))
 		for i, elem := range elements {
+			// Handle dynamic elements in lists
+			if dynamicElem, ok := elem.(types.Dynamic); ok {
+				result[i] = r.attrValueToInterface(dynamicElem.UnderlyingValue())
+			} else {
+				result[i] = r.attrValueToInterface(elem)
+			}
+		}
+		return result
+	case types.Tuple:
+		if v.IsNull() {
+			return nil
+		}
+		elements := v.Elements()
+		result := make([]interface{}, len(elements))
+		for i, elem := range elements {
 			result[i] = r.attrValueToInterface(elem)
 		}
 		return result
@@ -654,6 +713,11 @@ func (r *customCrudResource) attrValueToInterface(val attr.Value) interface{} {
 			result[k] = r.attrValueToInterface(attr)
 		}
 		return result
+	case types.Dynamic:
+		if v.IsNull() || v.IsUnknown() {
+			return nil
+		}
+		return r.attrValueToInterface(v.UnderlyingValue())
 	default:
 		return nil
 	}
