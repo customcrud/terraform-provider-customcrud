@@ -14,6 +14,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -24,6 +25,7 @@ import (
 // Ensure provider defined types fully satisfy framework interfaces.
 var _ resource.Resource = &customCrudResource{}
 var _ resource.ResourceWithImportState = &customCrudResource{}
+var _ resource.ResourceWithModifyPlan = &customCrudResource{}
 
 // CustomCrudResource implementation.
 type customCrudResourceModel struct {
@@ -47,7 +49,7 @@ func NewCustomCrudResource() resource.Resource {
 }
 
 func (r *customCrudResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_resource"
+	resp.TypeName = "crud"
 }
 
 func (r *customCrudResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
@@ -94,6 +96,38 @@ func (r *customCrudResource) Schema(ctx context.Context, req resource.SchemaRequ
 				},
 			},
 		},
+	}
+}
+
+// ModifyPlan implements resource.ResourceWithModifyPlan to force replacement
+// when update hook is not provided and input has changed.
+func (r *customCrudResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	// Only process during updates (not create or delete)
+	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+
+	var state, plan customCrudResourceModel
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Get CRUD commands from the plan
+	crud, err := r.getCrudCommands(&plan)
+	if err != nil {
+		// If we can't get CRUD commands, let the normal validation handle it
+		return
+	}
+
+	// If update hook is not provided (null or empty), force replacement on any input change
+	if crud.Update.IsNull() || strings.TrimSpace(crud.Update.ValueString()) == "" {
+		// Check if input has changed
+		if !state.Input.Equal(plan.Input) {
+			tflog.Debug(ctx, "Update hook not provided and input changed, forcing replacement")
+			resp.RequiresReplace = append(resp.RequiresReplace, path.Root("input"))
+		}
 	}
 }
 
@@ -334,11 +368,6 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 	crud, err := r.getCrudCommands(&plan)
 	if err != nil {
 		resp.Diagnostics.AddError("Error getting CRUD commands", err.Error())
-		return
-	}
-
-	if crud.Update.IsNull() {
-		resp.Diagnostics.AddError("Update Not Supported", "No update command provided, resource requires recreation")
 		return
 	}
 

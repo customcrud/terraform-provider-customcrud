@@ -1,14 +1,14 @@
 terraform {
   required_providers {
-    customcrud = {
+    crud = {
       source = "registry.terraform.io/customcrud/customcrud"
     }
   }
 }
 
-provider "customcrud" {}
+provider "crud" {}
 
-resource "customcrud_resource" "file" {
+resource "crud" "file" {
   hooks {
     create = "../crud/create.sh"
     read   = "../crud/read.sh"
@@ -17,6 +17,6 @@ resource "customcrud_resource" "file" {
   }
 
   input = {
-    content = "Hello, World test!"
+    content = "Hello, World tast!"
   }
 }

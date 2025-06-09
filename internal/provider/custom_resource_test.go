@@ -30,16 +30,16 @@ func TestAccExampleResource(t *testing.T) {
 			{
 				Config: testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, content),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("customcrud_resource.test", "output.content", content),
-					resource.TestCheckResourceAttrSet("customcrud_resource.test", "id"),
+					resource.TestCheckResourceAttr("crud.test", "output.content", content),
+					resource.TestCheckResourceAttrSet("crud.test", "id"),
 				),
 			},
 			// Import testing - this should happen after create but before update
 			{
 				Config:                  testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, content),
-				ResourceName:            "customcrud_resource.test",
+				ResourceName:            "crud.test",
 				ImportState:             true,
-				ImportStateIdFunc:       testAccResourceImportStateIdFunc("customcrud_resource.test", createScript, readScript, updateScript, deleteScript),
+				ImportStateIdFunc:       testAccResourceImportStateIdFunc("crud.test", createScript, readScript, updateScript, deleteScript),
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"hooks", "input"},
 			},
@@ -47,7 +47,7 @@ func TestAccExampleResource(t *testing.T) {
 			{
 				Config: testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, updatedContent),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("customcrud_resource.test", "output.content", updatedContent),
+					resource.TestCheckResourceAttr("crud.test", "output.content", updatedContent),
 				),
 			},
 			// Delete testing automatically occurs in TestCase
@@ -104,7 +104,7 @@ func testAccResourceImportStateIdFunc(resourceName, createScript, readScript, up
 
 func testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, content string) string {
 	return fmt.Sprintf(`
-resource "customcrud_resource" "test" {
+resource "crud" "test" {
   hooks {
     create = %[1]q
     read   = %[2]q
