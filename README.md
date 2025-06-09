@@ -29,7 +29,7 @@ go install
 The provider allows you to define resources that use custom scripts for their lifecycle operations. Here's a basic example:
 
 ```hcl
-resource "crud" "example" {
+resource "customcrud" "example" {
   hooks {
     create = "./scripts/create.sh"
     read   = "./scripts/read.sh"
@@ -74,7 +74,7 @@ Scripts should return output as JSON:
 }
 ```
 
-The `id` field is required in the output of the create script and will be used to track the resource. The output from scripts will be stored in the resource's `output` attribute and can be referenced in other resources.
+The `id` field is required in the output of the create script and will be used to track the resource. The output from scripts will be stored in the resource's `output` attribute and can be referenced in other resources. Any keys in the output which match the input will be synced up, so changes to the resource will only be detected if you are explicitly setting input for it.
 
 ## Development
 

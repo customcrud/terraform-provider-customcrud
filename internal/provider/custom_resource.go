@@ -49,7 +49,7 @@ func NewCustomCrudResource() resource.Resource {
 }
 
 func (r *customCrudResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = "crud"
+	resp.TypeName = "customcrud"
 }
 
 func (r *customCrudResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
