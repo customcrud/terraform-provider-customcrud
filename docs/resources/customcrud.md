@@ -33,11 +33,11 @@ resource "customcrud" "file" {
 ### Optional
 
 - `hooks` (Block List) (see [below for nested schema](#nestedblock--hooks))
-- `id` (String) Resource identifier
 - `input` (Dynamic) Input data for the resource
 
 ### Read-Only
 
+- `id` (String) Resource identifier
 - `output` (Dynamic) Output data from the resource
 
 <a id="nestedblock--hooks"></a>

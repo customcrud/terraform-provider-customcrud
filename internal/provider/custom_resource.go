@@ -57,7 +57,6 @@ func (r *customCrudResource) Schema(ctx context.Context, req resource.SchemaRequ
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Optional:    true,
 				Computed:    true,
 				Description: "Resource identifier",
 			},
