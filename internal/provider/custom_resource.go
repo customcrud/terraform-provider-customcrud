@@ -138,6 +138,13 @@ type scriptPayload struct {
 	Output interface{} `json:"output"`
 }
 
+type scriptResult struct {
+	Result   map[string]interface{}
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}
+
 func (r *customCrudResource) convertToPayload(plan *customCrudResourceModel, state *customCrudResourceModel) scriptPayload {
 	var inputValue interface{}
 	var outputValue interface{}
@@ -165,7 +172,7 @@ func (r *customCrudResource) convertToPayload(plan *customCrudResourceModel, sta
 	}
 }
 
-func (r *customCrudResource) executeScript(ctx context.Context, cmd []string, payload scriptPayload) (map[string]interface{}, error) {
+func (r *customCrudResource) executeScript(ctx context.Context, cmd []string, payload scriptPayload) (*scriptResult, error) {
 	if len(cmd) == 0 {
 		return nil, fmt.Errorf("empty command")
 	}
@@ -188,29 +195,44 @@ func (r *customCrudResource) executeScript(ctx context.Context, cmd []string, pa
 	execCmd.Stderr = &stderr
 
 	err = execCmd.Run()
+	result := &scriptResult{
+		Stdout:   stdout.String(),
+		Stderr:   stderr.String(),
+		ExitCode: 0,
+	}
+
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			result.ExitCode = exitErr.ExitCode()
+		}
 		tflog.Debug(ctx, "Script execution failed", map[string]interface{}{
-			"stdout": stdout.String(),
-			"stderr": stderr.String(),
-			"error":  err.Error(),
+			"stdout":   result.Stdout,
+			"stderr":   result.Stderr,
+			"exitCode": result.ExitCode,
+			"error":    err.Error(),
+			"payload":  string(payloadBytes),
 		})
-		return nil, fmt.Errorf("script execution failed: %w", err)
+		return result, fmt.Errorf("script execution failed with exit code %d: %w", result.ExitCode, err)
 	}
 
 	tflog.Debug(ctx, "Script execution completed", map[string]interface{}{
-		"stdout": stdout.String(),
-		"stderr": stderr.String(),
+		"stdout":   result.Stdout,
+		"stderr":   result.Stderr,
+		"exitCode": result.ExitCode,
+		"payload":  string(payloadBytes),
 	})
 
 	if stdout.Len() == 0 {
 		tflog.Debug(ctx, "Script output is empty")
-		return nil, nil
-	}
-	var result map[string]interface{}
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse script output: %w", err)
+		return result, nil
 	}
 
+	var jsonResult map[string]interface{}
+	if err := json.Unmarshal(stdout.Bytes(), &jsonResult); err != nil {
+		return result, fmt.Errorf("failed to parse script output: %w", err)
+	}
+
+	result.Result = jsonResult
 	return result, nil
 }
 
@@ -267,17 +289,20 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
-	result, err := r.executeScript(ctx, createCmd, r.convertToPayload(&data, nil))
+	payload := r.convertToPayload(&data, nil)
+	result, err := r.executeScript(ctx, createCmd, payload)
 	if err != nil {
-		resp.Diagnostics.AddError("Create Script Failed", err.Error())
+		payloadJSON, _ := json.Marshal(payload)
+		resp.Diagnostics.AddError("Create Script Failed", fmt.Sprintf("%v\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", err, result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
 		return
 	}
-	if result == nil {
-		resp.Diagnostics.AddError("Read Script Failed", "Read script returned nil output")
+	if result == nil || result.Result == nil {
+		payloadJSON, _ := json.Marshal(payload)
+		resp.Diagnostics.AddError("Create Script Failed", fmt.Sprintf("Create script returned nil output\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
 		return
 	}
 
-	if id, exists := result["id"]; exists {
+	if id, exists := result.Result["id"]; exists {
 		if idStr, ok := id.(string); ok {
 			data.Id = types.StringValue(idStr)
 		} else {
@@ -292,12 +317,12 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
-	outputValue := r.mapToDynamic(result)
+	outputValue := r.mapToDynamic(result.Result)
 	data.Output = outputValue
 
 	// Update input with any matching keys from output
 	if !data.Input.IsNull() && !data.Input.IsUnknown() {
-		updatedInput := r.mergeInputWithOutput(data.Input, result)
+		updatedInput := r.mergeInputWithOutput(data.Input, result.Result)
 		data.Input = updatedInput
 	}
 
@@ -323,19 +348,22 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 		return
 	}
 
-	result, err := r.executeScript(ctx, readCmd, r.convertToPayload(nil, &data))
+	payload := r.convertToPayload(nil, &data)
+	result, err := r.executeScript(ctx, readCmd, payload)
 	if err != nil {
-		resp.Diagnostics.AddError("Read Script Failed", err.Error())
+		payloadJSON, _ := json.Marshal(payload)
+		resp.Diagnostics.AddError("Read Script Failed", fmt.Sprintf("%v\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", err, result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
 		return
 	}
-	if result == nil {
-		resp.Diagnostics.AddError("Read Script Failed", "Read script returned nil output")
+	if result == nil || result.Result == nil {
+		payloadJSON, _ := json.Marshal(payload)
+		resp.Diagnostics.AddError("Read Script Failed", fmt.Sprintf("Read script returned nil output\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
 		return
 	}
 
-	newOutput := r.mapToDynamic(result)
+	newOutput := r.mapToDynamic(result.Result)
 	data.Output = newOutput
-	data.Input = r.mergeInputWithOutput(data.Input, result)
+	data.Input = r.mergeInputWithOutput(data.Input, result.Result)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
@@ -364,20 +392,23 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
-	result, err := r.executeScript(ctx, updateCmd, r.convertToPayload(&plan, &state))
+	payload := r.convertToPayload(&plan, &state)
+	result, err := r.executeScript(ctx, updateCmd, payload)
 	if err != nil {
-		resp.Diagnostics.AddError("Update Script Failed", err.Error())
+		payloadJSON, _ := json.Marshal(payload)
+		resp.Diagnostics.AddError("Update Script Failed", fmt.Sprintf("%v\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", err, result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
 		return
 	}
-	if result == nil {
-		resp.Diagnostics.AddError("Read Script Failed", "Read script returned nil output")
+	if result == nil || result.Result == nil {
+		payloadJSON, _ := json.Marshal(payload)
+		resp.Diagnostics.AddError("Update Script Failed", fmt.Sprintf("Update script returned nil output\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
 		return
 	}
 
-	newOutput := r.mapToDynamic(result)
+	newOutput := r.mapToDynamic(result.Result)
 	plan.Output = newOutput
 
-	if id, exists := result["id"]; exists {
+	if id, exists := result.Result["id"]; exists {
 		if idStr, ok := id.(string); ok {
 			plan.Id = types.StringValue(idStr)
 		} else {
@@ -391,7 +422,7 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 
 	// Update input with any matching keys from output
 	if !plan.Input.IsNull() && !plan.Input.IsUnknown() {
-		updatedInput := r.mergeInputWithOutput(plan.Input, result)
+		updatedInput := r.mergeInputWithOutput(plan.Input, result.Result)
 		plan.Input = updatedInput
 	}
 
@@ -417,9 +448,11 @@ func (r *customCrudResource) Delete(ctx context.Context, req resource.DeleteRequ
 		return
 	}
 
-	_, err = r.executeScript(ctx, deleteCmd, r.convertToPayload(nil, &data))
+	payload := r.convertToPayload(nil, &data)
+	result, err := r.executeScript(ctx, deleteCmd, payload)
 	if err != nil {
-		resp.Diagnostics.AddError("Delete Script Failed", err.Error())
+		payloadJSON, _ := json.Marshal(payload)
+		resp.Diagnostics.AddError("Delete Script Failed", fmt.Sprintf("%v\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", err, result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
 		return
 	}
 }
@@ -525,13 +558,17 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 	// Use read to populate the state
 	result, err := r.executeScript(ctx, readCmd, payload)
 	if err != nil {
-		resp.Diagnostics.AddError("Import Read Failed", err.Error())
+		resp.Diagnostics.AddError("Import Read Failed", fmt.Sprintf("%v\nExit Code: %d\nStdout: %s\nStderr: %s", err, result.ExitCode, result.Stdout, result.Stderr))
+		return
+	}
+	if result == nil || result.Result == nil {
+		resp.Diagnostics.AddError("Import Read Failed", fmt.Sprintf("Import read script returned nil output\nExit Code: %d\nStdout: %s\nStderr: %s", result.ExitCode, result.Stdout, result.Stderr))
 		return
 	}
 
-	outputValue := r.mapToDynamic(result)
+	outputValue := r.mapToDynamic(result.Result)
 	data.Output = outputValue
-	data.Input = r.mergeInputWithOutput(data.Input, result)
+	data.Input = r.mergeInputWithOutput(data.Input, result.Result)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }

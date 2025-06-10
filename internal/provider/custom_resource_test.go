@@ -4,10 +4,15 @@
 package provider
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
@@ -16,10 +21,10 @@ func TestAccExampleResource(t *testing.T) {
 	content := "Initial content"
 	updatedContent := "Updated content"
 
-	createScript := "../../examples/file/create.sh"
-	readScript := "../../examples/file/read.sh"
-	updateScript := "../../examples/file/update.sh"
-	deleteScript := "../../examples/file/delete.sh"
+	createScript := "../../examples/file/hooks/create.sh"
+	readScript := "../../examples/file/hooks/read.sh"
+	updateScript := "../../examples/file/hooks/update.sh"
+	deleteScript := "../../examples/file/hooks/delete.sh"
 
 	// Single test case with all steps including import
 	resource.Test(t, resource.TestCase{
@@ -56,9 +61,9 @@ func TestAccExampleResource(t *testing.T) {
 }
 
 func TestAccExampleResourceEdgeCases(t *testing.T) {
-	createScript := "../../examples/test_edgecases/create.sh"
-	readScript := "../../examples/test_edgecases/read.sh"
-	deleteScript := "../../examples/test_edgecases/delete.sh"
+	createScript := "test_edgecases/create.sh"
+	readScript := "test_edgecases/read.sh"
+	deleteScript := "test_edgecases/delete.sh"
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
@@ -91,6 +96,111 @@ func TestAccExampleResourceEdgeCases(t *testing.T) {
 				ImportStateVerifyIgnore: []string{"hooks"},
 			},
 		},
+	})
+}
+
+func TestAccResourceScriptFailures(t *testing.T) {
+	createScript := "test_failures/create.sh"
+	readScript := "test_failures/read.sh"
+	deleteScript := "test_failures/delete.sh"
+
+	// Test create failure
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccExampleResourceEdgeCaseConfig(createScript, readScript, deleteScript),
+				ExpectError: regexp.MustCompile(
+					`(?s)Error: Create Script Failed.*` +
+						`script execution failed with exit code 13: exit status 13.*` +
+						`Exit Code: 13.*` +
+						`Stdout:.*` +
+						`Stderr: Failed to create resource: Permission denied.*` +
+						`Input Payload: {"id":"","input":null,"output":null}`),
+			},
+		},
+	})
+
+	// Test delete failure
+	t.Run("DeleteFailure", func(t *testing.T) {
+		// Create a resource instance to test deletion
+		r := &customCrudResource{}
+		ctx := context.Background()
+
+		// Set up a failing delete script
+		data := customCrudResourceModel{
+			Id: types.StringValue("test-123"),
+			Input: types.DynamicValue(types.ObjectValueMust(
+				map[string]attr.Type{
+					"content": types.StringType,
+				},
+				map[string]attr.Value{
+					"content": types.StringValue("test content"),
+				},
+			)),
+		}
+
+		// Create hooks block with failing delete script
+		hooksObj, diags := types.ObjectValue(
+			map[string]attr.Type{
+				"create": types.StringType,
+				"read":   types.StringType,
+				"update": types.StringType,
+				"delete": types.StringType,
+			},
+			map[string]attr.Value{
+				"create": types.StringValue("../../examples/file/create.sh"),
+				"read":   types.StringValue(readScript),
+				"update": types.StringNull(),
+				"delete": types.StringValue(deleteScript),
+			},
+		)
+		if diags.HasError() {
+			t.Fatalf("Failed to create hooks object: %v", diags)
+		}
+
+		hooksList, diags := types.ListValue(
+			types.ObjectType{
+				AttrTypes: map[string]attr.Type{
+					"create": types.StringType,
+					"read":   types.StringType,
+					"update": types.StringType,
+					"delete": types.StringType,
+				},
+			},
+			[]attr.Value{hooksObj},
+		)
+		if diags.HasError() {
+			t.Fatalf("Failed to create hooks list: %v", diags)
+		}
+
+		data.Hooks = hooksList
+
+		// Try to delete the resource
+		crud, err := r.getCrudCommands(&data)
+		if err != nil {
+			t.Fatalf("Failed to get CRUD commands: %v", err)
+		}
+
+		deleteCmd := strings.Fields(crud.Delete.ValueString())
+		result, err := r.executeScript(ctx, deleteCmd, r.convertToPayload(nil, &data))
+		if err == nil {
+			t.Fatal("Expected delete to fail, but it succeeded")
+		}
+
+		// Verify the error message
+		errStr := fmt.Sprintf("script execution failed with exit code 7: %v\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s",
+			err, result.ExitCode, result.Stdout, result.Stderr, `{"id":"test-123","input":{"content":"test content"},"output":null}`)
+
+		if !regexp.MustCompile(
+			`script execution failed with exit code 7: script execution failed with exit code 7: exit status 7\s+` +
+				`Exit Code: 7\s+` +
+				`Stdout:\s+` +
+				`Stderr: Failed to delete resource: Resource is locked\s+` +
+				`Input Payload: {"id":"test-123","input":{"content":"test content"},"output":null}`).MatchString(errStr) {
+			t.Fatalf("Error message did not match expected pattern. Got: %s", errStr)
+		}
 	})
 }
 

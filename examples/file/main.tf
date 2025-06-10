@@ -10,10 +10,10 @@ provider "customcrud" {}
 
 resource "customcrud" "file" {
   hooks {
-    create = "crud/create.sh"
-    read   = "crud/read.sh"
-    update = "crud/update.sh"
-    delete = "crud/delete.sh"
+    create = "hooks/create.sh"
+    read   = "hooks/read.sh"
+    update = "hooks/update.sh"
+    delete = "hooks/delete.sh"
   }
 
   input = {
