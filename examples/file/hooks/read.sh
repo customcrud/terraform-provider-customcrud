@@ -2,7 +2,7 @@
 
 set -e
 
-INPUT="$(cat)"
+INPUT="$(cat || exit 22)"
 1>&2 echo "[READ] INPUT_DUMP: $INPUT"
 ID="$(echo "$INPUT" | jq -r ".id")"
 
