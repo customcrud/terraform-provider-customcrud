@@ -48,7 +48,7 @@ resource "customcrud" "example" {
 Your scripts should:
 1. Accept JSON input via stdin
 2. Return JSON output to stdout
-3. Use appropriate exit codes (0 for success, non-zero for failure)
+3. Use appropriate exit codes (0 for success, non-zero for failure, 22 to force a re-create if the resource no longer exists on remote)
 4. Handle the specific CRUD operation they're designed for
 
 ### Input/Output Format
@@ -75,6 +75,8 @@ Scripts should return output as JSON:
 ```
 
 The `id` field is required in the output of the create script and will be used to track the resource. The output from scripts will be stored in the resource's `output` attribute and can be referenced in other resources. Any keys in the output which match the input will be synced up, so changes to the resource will only be detected if you are explicitly setting input for it.
+
+If a read script returns exit code 22, the provider will recognise the resource as not existing on remote, and the create script will run as part of the next plan and apply. 
 
 ## Development
 
