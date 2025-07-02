@@ -351,6 +351,12 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 	result, err := r.executeScript(ctx, readCmd, payload)
 	if err != nil {
 		payloadJSON, _ := json.Marshal(payload)
+		// Treat exit code 22 from script as a signal to recreate resource
+    	// and return early
+		if result.ExitCode == 22 {
+			resp.State.RemoveResource(ctx)
+			return
+		}
 		resp.Diagnostics.AddError("Read Script Failed", fmt.Sprintf("%v\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", err, result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
 		return
 	}

@@ -204,6 +204,39 @@ func TestAccResourceScriptFailures(t *testing.T) {
 	})
 }
 
+func TestAccResourceRemovedRemote(t *testing.T) {
+	createScript := "../../examples/file/hooks/create.sh"
+	readScript := "../../examples/file/hooks/read.sh"
+	deleteScript := "../../examples/file/hooks/delete.sh"
+	readScriptSimulateRemoval := "test_resource_removed_remote/read_simulate_removed_remote.sh"
+
+	content := "Test content for remote removal"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Simulate the resource being removed from state, as when doing a refresh, I should get a non-empty plan
+			{
+				Config: testAccResourceRemovedRemoteConfig(createScript, readScriptSimulateRemoval, deleteScript, content),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("customcrud.test", "output.content", content),
+					resource.TestCheckResourceAttrSet("customcrud.test", "id"),
+				),
+				ExpectNonEmptyPlan: true,
+			},
+			// Then use normal read script, to verify creation
+			{
+				Config: testAccResourceRemovedRemoteConfig(createScript, readScript, deleteScript, content),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("customcrud.test", "output.content", content),
+					resource.TestCheckResourceAttrSet("customcrud.test", "id"),
+				),
+			},
+		},
+	})
+}
+
 // Helper function to generate import state ID.
 func testAccResourceImportStateIdFunc(resourceName, createScript, readScript, updateScript, deleteScript string) resource.ImportStateIdFunc {
 	return func(s *terraform.State) (string, error) {
@@ -277,4 +310,19 @@ resource "customcrud" "test" {
   }
 }
 `, createScript, readScript, deleteScript)
+}
+
+func testAccResourceRemovedRemoteConfig(createScript, readScript, deleteScript, content string) string {
+	return fmt.Sprintf(`
+resource "customcrud" "test" {
+  hooks {
+    create = %[1]q
+    read   = %[2]q
+    delete = %[3]q
+  }
+  input = {
+    content = %[4]q
+  }
+}
+`, createScript, readScript, deleteScript, content)
 }
