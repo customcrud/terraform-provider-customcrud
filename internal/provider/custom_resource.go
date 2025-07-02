@@ -352,7 +352,7 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 	if err != nil {
 		payloadJSON, _ := json.Marshal(payload)
 		// Treat exit code 22 from script as a signal to recreate resource
-    	// and return early
+		// and return early
 		if result.ExitCode == 22 {
 			resp.State.RemoveResource(ctx)
 			return
