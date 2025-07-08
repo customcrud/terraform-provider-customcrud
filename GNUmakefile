@@ -1,10 +1,11 @@
 default: fmt lint install generate
 
+local_registry_path=$(HOME)/.terraform.d/plugins/registry.terraform.io/customcrud/customcrud/1.0.0/$(shell go env GOOS)_$(shell go env GOARCH)
 build:
 	go build -o terraform-provider-customcrud
-	cp terraform-provider-customcrud ~/.terraform.d/plugins/registry.terraform.io/customcrud/customcrud/1.0.0/linux_amd64/
-	rm -f examples/.terraform.lock.hcl
-	cd examples && terraform init
+	mkdir -p "$(local_registry_path)"
+	cp terraform-provider-customcrud "$(local_registry_path)/terraform-provider-customcrud"
+	cd examples/file && rm -f .terraform.lock.hcl && terraform init
 
 install: build
 	go install -v ./...
