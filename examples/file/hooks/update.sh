@@ -2,10 +2,9 @@
 
 set -e
 
-INPUT="$(cat)"
-1>&2 echo "[UPDATE] INPUT_DUMP: $INPUT"
-ID="$(echo "$INPUT" | jq -r ".id")"
-CONTENT="$(echo "$INPUT" | jq -r ".input.content")"
+input="$(cat)"
+id="$(echo "$input" | jq -r ".id")"
+content="$(echo "$input" | jq -r ".input.content")"
 
-echo "$CONTENT" > "$ID"
-jq -n --arg id "$ID" --arg content "$(cat "$ID")" '{id: $id, content: $content}'
+echo "$content" > "$id"
+jq -n --arg id "$id" --arg content "$(cat "$id")" '{id: $id, content: $content}'

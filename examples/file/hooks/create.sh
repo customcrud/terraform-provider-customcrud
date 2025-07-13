@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 
 set -e
-INPUT="$(cat)"
-1>&2 echo "[CREATE] INPUT_DUMP: $INPUT"
+input="$(cat)"
 
-ID="$(mktemp)"
-CONTENT="$(echo "$INPUT" | jq -r ".input.content")"
-echo "$CONTENT" > "$ID"
+id="$(mktemp)"
+content="$(echo "$input" | jq -r ".input.content")"
+echo "$content" > "$id"
 
-jq -n --arg id "$ID" --arg content "$CONTENT" '{id: $id, content: $content}'
+jq -n --arg id "$id" --arg content "$content" '{id: $id, content: $content}'
