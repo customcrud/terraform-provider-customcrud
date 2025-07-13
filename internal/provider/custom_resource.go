@@ -29,6 +29,7 @@ import (
 var _ resource.Resource = &customCrudResource{}
 var _ resource.ResourceWithImportState = &customCrudResource{}
 var _ resource.ResourceWithModifyPlan = &customCrudResource{}
+var _ resource.ResourceWithConfigure = &customCrudResource{}
 
 // CustomCrudResource implementation.
 type customCrudResourceModel struct {
@@ -45,7 +46,9 @@ type hooksBlockValue struct {
 	Delete types.String `tfsdk:"delete"`
 }
 
-type customCrudResource struct{}
+type customCrudResource struct {
+	semaphore chan struct{}
+}
 
 func NewCustomCrudResource() resource.Resource {
 	return &customCrudResource{}
@@ -274,7 +277,24 @@ func (r *customCrudResource) getCrudCommands(data *customCrudResourceModel) (*ho
 	return crud, nil
 }
 
+func (r *customCrudResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		r.semaphore = nil
+		return
+	}
+	if sem, ok := req.ProviderData.(chan struct{}); ok {
+		r.semaphore = sem
+	} else {
+		r.semaphore = nil
+	}
+}
+
 func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	if r.semaphore != nil {
+		r.semaphore <- struct{}{}
+		defer func() { <-r.semaphore }()
+	}
+
 	var data customCrudResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -334,6 +354,11 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 }
 
 func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	if r.semaphore != nil {
+		r.semaphore <- struct{}{}
+		defer func() { <-r.semaphore }()
+	}
+
 	var data customCrudResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
@@ -379,6 +404,11 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 }
 
 func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	if r.semaphore != nil {
+		r.semaphore <- struct{}{}
+		defer func() { <-r.semaphore }()
+	}
+
 	var plan customCrudResourceModel
 	var state customCrudResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -440,6 +470,11 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 }
 
 func (r *customCrudResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	if r.semaphore != nil {
+		r.semaphore <- struct{}{}
+		defer func() { <-r.semaphore }()
+	}
+
 	var data customCrudResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &data)...)
 	if resp.Diagnostics.HasError() {
