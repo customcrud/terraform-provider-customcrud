@@ -48,7 +48,7 @@ resource "customcrud" "example" {
 Your scripts should:
 1. Accept JSON input via stdin
 2. Return JSON output to stdout
-3. Use appropriate exit codes (0 for success, non-zero for failure, 22 to force a re-create if the resource no longer exists on remote)
+3. Use appropriate exit codes (`0` for success, non-zero for failure, `22` to force a re-create if the resource no longer exists on remote)
 4. Handle the specific CRUD operation they're designed for
 
 ### Input/Output Format
