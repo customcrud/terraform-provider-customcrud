@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -234,6 +235,78 @@ func TestAccResourceRemovedRemote(t *testing.T) {
 				),
 			},
 		},
+	})
+}
+
+func TestAccParallelism_SerializesExecution(t *testing.T) {
+
+	dir, err := filepath.Abs("test_parallel")
+	if err != nil {
+		t.Fatalf("Failed to resolve test_parallel dir: %v", err)
+	}
+	createScript := filepath.Join(dir, "create.sh")
+	readScript := filepath.Join(dir, "read.sh")
+	deleteScript := filepath.Join(dir, "delete.sh")
+
+	t.Run("parallelism=1 passes", func(t *testing.T) {
+		config := fmt.Sprintf(`
+provider "customcrud" {
+  parallelism = 1
+}
+resource "customcrud" "locktest_serial" {
+  count = 2
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = { name = "lock_parallel_1" }
+}
+`, createScript, readScript, deleteScript)
+		resource.Test(t, resource.TestCase{
+			PreCheck:                 func() { testAccPreCheck(t) },
+			ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+			Steps: []resource.TestStep{
+				{
+					Config: config,
+					Check: resource.ComposeAggregateTestCheckFunc(
+						resource.TestCheckResourceAttrSet("customcrud.locktest_serial.0", "id"),
+						resource.TestCheckResourceAttrSet("customcrud.locktest_serial.1", "id"),
+					),
+				},
+			},
+		})
+	})
+
+	t.Run("parallelism=2 fails", func(t *testing.T) {
+		config := fmt.Sprintf(`
+	
+		provider "customcrud" {
+		  parallelism = 2
+		}
+	
+		resource "customcrud" "locktest_parallel" {
+		  count = 2
+		  hooks {
+		    create = %q
+		    read   = %q
+		    delete = %q
+		  }
+		  input = { name = "lock_parallel_2" }
+		}
+	
+	`, createScript, readScript, deleteScript)
+
+		resource.Test(t, resource.TestCase{
+			PreCheck:                 func() { testAccPreCheck(t) },
+			ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+			Steps: []resource.TestStep{
+				{
+					Config:      config,
+					ExpectError: regexp.MustCompile(`(?s)Create Script Failed.*lock \[lock_parallel_2\] already held`),
+				},
+			},
+		})
 	})
 }
 

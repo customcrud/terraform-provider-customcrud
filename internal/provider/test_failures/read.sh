@@ -2,4 +2,4 @@
 
 read -r input
 
-echo '{"id": "test-123", "message": "Resource exists"}' 
+jq -n '{id: "test-123", message: "Resource exists"}'
