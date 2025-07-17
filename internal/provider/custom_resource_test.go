@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	utils "github.com/customcrud/terraform-provider-customcrud/internal/provider/utils"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -118,7 +119,7 @@ func TestAccResourceScriptFailures(t *testing.T) {
 						`Exit Code: 13.*` +
 						`Stdout:.*` +
 						`Stderr: Failed to create resource: Permission denied.*` +
-						`Input Payload: {"id":"","input":null,"output":null}`),
+						`Input Payload: {}`),
 			},
 		},
 	})
@@ -126,7 +127,6 @@ func TestAccResourceScriptFailures(t *testing.T) {
 	// Test delete failure
 	t.Run("DeleteFailure", func(t *testing.T) {
 		// Create a resource instance to test deletion
-		r := &customCrudResource{}
 		ctx := context.Background()
 
 		// Set up a failing delete script
@@ -145,16 +145,16 @@ func TestAccResourceScriptFailures(t *testing.T) {
 		// Create hooks block with failing delete script
 		hooksObj, diags := types.ObjectValue(
 			map[string]attr.Type{
-				"create": types.StringType,
-				"read":   types.StringType,
-				"update": types.StringType,
-				"delete": types.StringType,
+				utils.Create: types.StringType,
+				utils.Read:   types.StringType,
+				utils.Update: types.StringType,
+				utils.Delete: types.StringType,
 			},
 			map[string]attr.Value{
-				"create": types.StringValue("../../examples/file/create.sh"),
-				"read":   types.StringValue(readScript),
-				"update": types.StringNull(),
-				"delete": types.StringValue(deleteScript),
+				utils.Create: types.StringValue("../../examples/file/create.sh"),
+				utils.Read:   types.StringValue(readScript),
+				utils.Update: types.StringNull(),
+				utils.Delete: types.StringValue(deleteScript),
 			},
 		)
 		if diags.HasError() {
@@ -164,10 +164,10 @@ func TestAccResourceScriptFailures(t *testing.T) {
 		hooksList, diags := types.ListValue(
 			types.ObjectType{
 				AttrTypes: map[string]attr.Type{
-					"create": types.StringType,
-					"read":   types.StringType,
-					"update": types.StringType,
-					"delete": types.StringType,
+					utils.Create: types.StringType,
+					utils.Read:   types.StringType,
+					utils.Update: types.StringType,
+					utils.Delete: types.StringType,
 				},
 			},
 			[]attr.Value{hooksObj},
@@ -179,13 +179,17 @@ func TestAccResourceScriptFailures(t *testing.T) {
 		data.Hooks = hooksList
 
 		// Try to delete the resource
-		crud, err := r.getCrudCommands(&data)
+		crud, err := getCrudCommands(&data)
 		if err != nil {
 			t.Fatalf("Failed to get CRUD commands: %v", err)
 		}
 
 		deleteCmd := strings.Fields(crud.Delete.ValueString())
-		result, err := r.executeScript(ctx, deleteCmd, r.convertToPayload(nil, &data))
+		result, err := utils.ExecuteScript(ctx, deleteCmd, utils.ScriptPayload{
+			Id:     data.Id.ValueString(),
+			Input:  utils.AttrValueToInterface(data.Input.UnderlyingValue()),
+			Output: nil,
+		})
 		if err == nil {
 			t.Fatal("Expected delete to fail, but it succeeded")
 		}
@@ -325,10 +329,10 @@ func testAccResourceImportStateIdFunc(resourceName, createScript, readScript, up
 		importData := importStateData{
 			Id: rs.Primary.ID,
 			Hooks: map[string]string{
-				"create": createScript,
-				"read":   readScript,
-				"update": updateScript,
-				"delete": deleteScript,
+				utils.Create: createScript,
+				utils.Read:   readScript,
+				utils.Update: updateScript,
+				utils.Delete: deleteScript,
 			},
 		}
 

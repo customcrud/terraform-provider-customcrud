@@ -20,3 +20,16 @@ resource "customcrud" "file" {
     content = "Hello, World!"
   }
 }
+
+data "customcrud" "file" {
+  hooks {
+    read = "hooks/read.sh"
+  }
+  input = {
+    path = "/etc/hosts"
+  }
+}
+
+output "file_contents" {
+  value = data.customcrud_data.file.output.content
+}

@@ -78,6 +78,26 @@ The `id` field is required in the output of the create script and will be used t
 
 If a read script returns exit code 22, the provider will recognise the resource as not existing on remote, and the create script will run as part of the next plan and apply. 
 
+## Data Source Example
+
+You can also use the `customcrud` data source to fetch information using a custom script. For example:
+
+```hcl
+data "customcrud" "file" {
+  hooks {
+    read = "./scripts/file/read.sh"
+  }
+
+  input = {
+    path = "/etc/hosts"
+  }
+}
+
+output "file_content" {
+  value = data.customcrud.file.output["content"]
+}
+```
+
 ## Development
 
 If you wish to work on the provider, you'll first need [Go](http://www.golang.org) installed on your machine (see [Requirements](#requirements) above).
