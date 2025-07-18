@@ -89,7 +89,9 @@ func (p *CustomCRUDProvider) EphemeralResources(ctx context.Context) []func() ep
 }
 
 func (p *CustomCRUDProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{}
+	return []func() datasource.DataSource{
+		NewCustomCrudDataSource,
+	}
 }
 
 func (p *CustomCRUDProvider) Functions(ctx context.Context) []func() function.Function {

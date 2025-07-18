@@ -1,4 +1,4 @@
-module github.com/hashicorp/terraform-provider-scaffolding-framework
+module github.com/customcrud/terraform-provider-customcrud
 
 go 1.23.7
 
