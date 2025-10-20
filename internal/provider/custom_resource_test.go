@@ -339,10 +339,14 @@ func testAccResourceImportStateIdFunc(resourceName, importString string, createS
 				return "", fmt.Errorf("failed to parse import string as JSON: %v", err)
 			}
 			if input, ok := parsedImport["input"]; ok {
-				importData.Input = input.(map[string]interface{})
+				if inputMap, ok := input.(map[string]interface{}); ok {
+					importData.Input = inputMap
+				}
 			}
 			if output, ok := parsedImport["output"]; ok {
-				importData.Output = output.(map[string]interface{})
+				if outputMap, ok := output.(map[string]interface{}); ok {
+					importData.Output = outputMap
+				}
 			}
 		}
 
