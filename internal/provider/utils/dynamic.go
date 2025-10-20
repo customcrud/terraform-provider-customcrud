@@ -27,10 +27,6 @@ func InterfaceToAttrValue(data interface{}) attr.Value {
 	case bool:
 		return types.BoolValue(v)
 	case []interface{}:
-		if len(v) == 0 {
-			listVal, _ := types.ListValue(types.DynamicType, []attr.Value{})
-			return listVal
-		}
 		elements := make([]attr.Value, len(v))
 		for i, elem := range v {
 			elements[i] = InterfaceToAttrValue(elem)
