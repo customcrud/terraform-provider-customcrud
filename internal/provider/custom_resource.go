@@ -229,9 +229,10 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 			return
 		}
 		data.Output = utils.MapToDynamic(result.Result)
-		if !data.Input.IsNull() && !data.Input.IsUnknown() {
-			data.Input = r.mergeInputWithOutput(data.Input, result.Result)
-		}
+		// Do not alter data.Input here; preserve original input attribute types from the plan/state
+		// if !data.Input.IsNull() && !data.Input.IsUnknown() {
+		// 	data.Input = r.mergeInputWithOutput(data.Input, result.Result)
+		// }
 		resp.Diagnostics.Append(resp.State.Set(ctx, data)...) // set state
 	})
 }
@@ -256,7 +257,8 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 			return
 		}
 		data.Output = utils.MapToDynamic(result.Result)
-		data.Input = r.mergeInputWithOutput(data.Input, result.Result)
+		// Preserve input from the configuration/state; do not merge output into input here
+		// data.Input = r.mergeInputWithOutput(data.Input, result.Result)
 		resp.Diagnostics.Append(resp.State.Set(ctx, data)...) // set state
 	})
 }
@@ -291,9 +293,10 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 		} else {
 			plan.Id = state.Id
 		}
-		if !plan.Input.IsNull() && !plan.Input.IsUnknown() {
-			plan.Input = r.mergeInputWithOutput(plan.Input, result.Result)
-		}
+		// Preserve plan.Input types - do not merge
+		// if !plan.Input.IsNull() && !plan.Input.IsUnknown() {
+		// 	plan.Input = r.mergeInputWithOutput(plan.Input, result.Result)
+		// }
 		resp.Diagnostics.Append(resp.State.Set(ctx, plan)...) // set state
 	})
 }
@@ -408,34 +411,81 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 
 	outputValue := utils.MapToDynamic(result.Result)
 	data.Output = outputValue
-	data.Input = r.mergeInputWithOutput(data.Input, result.Result)
+	// If the import JSON provided an explicit input, use it. Otherwise populate
+	// input from the read result so import verification has the expected
+	// nested structure (tests rely on this behavior).
+	if importData.Input != nil {
+		data.Input = r.mergeInputWithOutput(data.Input, result.Result)
+	} else {
+		// Derive input from read result when not provided by the import JSON
+		data.Input = utils.MapToDynamic(result.Result)
+	}
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
+// mergeAttrValueWithInterface merges an existing attr.Value with an incoming
+// Go value (from script output), preserving the existing attribute types
+// where possible (e.g. list vs tuple element types). This is recursive for
+// objects and collections.
+// Removed mergeAttrValueWithInterface; we preserve original input attr.Values and avoid recursive merging.
+
 func (r *customCrudResource) mergeInputWithOutput(input types.Dynamic, output map[string]interface{}) types.Dynamic {
+	// If input is null/unknown just convert the output directly
 	if input.IsNull() || input.IsUnknown() {
-		return input
+		return utils.MapToDynamic(output)
 	}
 
-	// Convert input to map[string]interface{} via JSON marshaling/unmarshaling
-	inputMap := utils.AttrValueToInterface(input.UnderlyingValue())
-	inputMapTyped, ok := inputMap.(map[string]interface{})
+	underlying := input.UnderlyingValue()
+	obj, ok := underlying.(types.Object)
 	if !ok {
-		return input
-	}
+		// Fallback: convert to generic map and merge (previous behavior)
+		inputMap := utils.AttrValueToInterface(underlying)
+		inputMapTyped, ok := inputMap.(map[string]interface{})
+		if !ok {
+			return utils.MapToDynamic(output)
+		}
 
-	merged := make(map[string]interface{})
-	for k, v := range inputMapTyped {
-		merged[k] = v
-	}
-
-	// Update input values with matching output keys
-	for k, v := range output {
-		if _, exists := merged[k]; exists {
+		merged := make(map[string]interface{})
+		for k, v := range inputMapTyped {
 			merged[k] = v
+		}
+		for k, v := range output {
+			if _, exists := merged[k]; !exists {
+				merged[k] = v
+			}
+		}
+		return utils.MapToDynamic(merged)
+	}
+
+	// Copy existing attributes as-is to preserve their concrete attr.Value types
+	existingAttrs := obj.Attributes()
+	mergedAttrs := make(map[string]attr.Value)
+	for k, v := range existingAttrs {
+		mergedAttrs[k] = v
+	}
+
+	// Add any keys from output that were not present in the original input
+	for k, v := range output {
+		if _, exists := mergedAttrs[k]; !exists {
+			mergedAttrs[k] = utils.InterfaceToAttrValue(v)
 		}
 	}
 
-	return utils.MapToDynamic(merged)
+	// Build attribute types map from the original object's AttrTypes where possible
+	attrTypes := make(map[string]attr.Type)
+	if ot, ok := obj.Type(context.Background()).(types.ObjectType); ok {
+		for k, t := range ot.AttrTypes {
+			attrTypes[k] = t
+		}
+	}
+	// add types for any new attrs
+	for k, v := range mergedAttrs {
+		if _, exists := attrTypes[k]; !exists {
+			attrTypes[k] = v.Type(context.Background())
+		}
+	}
+
+	objVal, _ := types.ObjectValue(attrTypes, mergedAttrs)
+	return types.DynamicValue(objVal)
 }
