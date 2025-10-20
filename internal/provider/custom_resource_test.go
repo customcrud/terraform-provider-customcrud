@@ -385,6 +385,12 @@ resource "customcrud" "test" {
     read   = %[2]q
     delete = %[3]q
   }
+
+  input = {
+    b = {
+      c = ["a", "b", "c"]
+    }
+  }
 }
 `, createScript, readScript, deleteScript)
 }
