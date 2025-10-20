@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	utils "github.com/customcrud/terraform-provider-customcrud/internal/provider/utils"
+	"github.com/customcrud/terraform-provider-customcrud/internal/provider/utils"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -162,7 +162,7 @@ func getCrudCommands(data *customCrudResourceModel) (*hooksBlockValue, error) {
 	if create, ok := attrs[utils.Create].(types.String); ok {
 		crud.Create = create
 	}
-	if read, ok := attrs[utils.Create].(types.String); ok {
+	if read, ok := attrs[utils.Read].(types.String); ok {
 		crud.Read = read
 	}
 	if update, ok := attrs[utils.Update].(types.String); ok {
@@ -187,9 +187,6 @@ func (r *customCrudResource) Configure(ctx context.Context, req resource.Configu
 	}
 }
 
-// Helper to wrap a function with semaphore acquire/release
-// (removed: now using utils.WithSemaphore)
-
 // Helper to extract model from request and append diagnostics.
 func extractModel[T any](ctx context.Context, getFn func(context.Context, any) diag.Diagnostics, diagnostics *diag.Diagnostics) (*T, bool) {
 	var model T
@@ -203,51 +200,52 @@ func extractModel[T any](ctx context.Context, getFn func(context.Context, any) d
 // Refactored CRUD methods.
 func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	utils.WithSemaphore(r.semaphore, func() {
-		data, ok := extractModel[customCrudResourceModel](ctx, req.Plan.Get, &resp.Diagnostics)
+		plan, ok := extractModel[customCrudResourceModel](ctx, req.Plan.Get, &resp.Diagnostics)
 		if !ok {
 			return
 		}
-		payload := utils.ScriptPayload{
-			Id:     data.Id.ValueString(),
-			Input:  utils.AttrValueToInterface(data.Input.UnderlyingValue()),
-			Output: utils.AttrValueToInterface(data.Output.UnderlyingValue()),
+		payload := utils.ExecutionPayload{
+			Id:     plan.Id.ValueString(),
+			Input:  utils.AttrValueToInterface(plan.Input.UnderlyingValue()),
+			Output: utils.AttrValueToInterface(plan.Output.UnderlyingValue()),
 		}
-		result, ok := utils.RunCrudScript(ctx, data, payload, &resp.Diagnostics, utils.CrudCreate)
+		result, ok := utils.RunCrudScript(ctx, plan, payload, &resp.Diagnostics, utils.CrudCreate)
 		if !ok {
 			return
 		}
 		if id, exists := result.Result["id"]; exists {
 			if idStr, ok := id.(string); ok {
-				data.Id = types.StringValue(idStr)
+				plan.Id = types.StringValue(idStr)
 			} else {
 				idStr = fmt.Sprintf("%v", id)
-				data.Id = types.StringValue(idStr)
+				plan.Id = types.StringValue(idStr)
 			}
 		}
-		if data.Id.IsNull() || data.Id.ValueString() == "" {
-			resp.Diagnostics.AddError("Create Script Error", "Create script must return an 'id' field")
+		if plan.Id.IsNull() || plan.Id.ValueString() == "" {
+			resp.Diagnostics.AddError(
+				"Create Execution Error",
+				fmt.Sprintf("Create script must return an 'id' field\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", result.ExitCode, result.Stdout, result.Stderr, result.Payload),
+			)
 			return
 		}
-		data.Output = utils.MapToDynamic(result.Result)
-		if !data.Input.IsNull() && !data.Input.IsUnknown() {
-			data.Input = r.mergeInputWithOutput(data.Input, result.Result)
-		}
-		resp.Diagnostics.Append(resp.State.Set(ctx, data)...) // set state
+		plan.Output = utils.MapToDynamic(result.Result)
+		plan.Input = r.mergeInputWithOutput(plan.Input, result.Result)
+		resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 	})
 }
 
 func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	utils.WithSemaphore(r.semaphore, func() {
-		data, ok := extractModel[customCrudResourceModel](ctx, req.State.Get, &resp.Diagnostics)
+		state, ok := extractModel[customCrudResourceModel](ctx, req.State.Get, &resp.Diagnostics)
 		if !ok {
 			return
 		}
-		payload := utils.ScriptPayload{
-			Id:     data.Id.ValueString(),
-			Input:  utils.AttrValueToInterface(data.Input.UnderlyingValue()),
-			Output: utils.AttrValueToInterface(data.Output.UnderlyingValue()),
+		payload := utils.ExecutionPayload{
+			Id:     state.Id.ValueString(),
+			Input:  utils.AttrValueToInterface(state.Input.UnderlyingValue()),
+			Output: utils.AttrValueToInterface(state.Output.UnderlyingValue()),
 		}
-		result, ok := utils.RunCrudScript(ctx, data, payload, &resp.Diagnostics, utils.CrudRead)
+		result, ok := utils.RunCrudScript(ctx, state, payload, &resp.Diagnostics, utils.CrudRead)
 		if !ok {
 			// Special case: treat exit code 22 as resource removed
 			if result != nil && result.ExitCode == 22 {
@@ -255,9 +253,9 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 			}
 			return
 		}
-		data.Output = utils.MapToDynamic(result.Result)
-		data.Input = r.mergeInputWithOutput(data.Input, result.Result)
-		resp.Diagnostics.Append(resp.State.Set(ctx, data)...) // set state
+		state.Output = utils.MapToDynamic(result.Result)
+		state.Input = r.mergeInputWithOutput(state.Input, result.Result)
+		resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
 	})
 }
 
@@ -271,7 +269,7 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 		if !ok {
 			return
 		}
-		payload := utils.ScriptPayload{
+		payload := utils.ExecutionPayload{
 			Id:     plan.Id.ValueString(),
 			Input:  utils.AttrValueToInterface(plan.Input.UnderlyingValue()),
 			Output: utils.AttrValueToInterface(state.Output.UnderlyingValue()),
@@ -280,7 +278,6 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 		if !ok {
 			return
 		}
-		plan.Output = utils.MapToDynamic(result.Result)
 		if id, exists := result.Result["id"]; exists {
 			if idStr, ok := id.(string); ok {
 				plan.Id = types.StringValue(idStr)
@@ -291,10 +288,9 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 		} else {
 			plan.Id = state.Id
 		}
-		if !plan.Input.IsNull() && !plan.Input.IsUnknown() {
-			plan.Input = r.mergeInputWithOutput(plan.Input, result.Result)
-		}
-		resp.Diagnostics.Append(resp.State.Set(ctx, plan)...) // set state
+		plan.Output = utils.MapToDynamic(result.Result)
+		plan.Input = r.mergeInputWithOutput(plan.Input, result.Result)
+		resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 	})
 }
 
@@ -304,7 +300,7 @@ func (r *customCrudResource) Delete(ctx context.Context, req resource.DeleteRequ
 		if !ok {
 			return
 		}
-		payload := utils.ScriptPayload{
+		payload := utils.ExecutionPayload{
 			Id:     data.Id.ValueString(),
 			Input:  utils.AttrValueToInterface(data.Input.UnderlyingValue()),
 			Output: utils.AttrValueToInterface(data.Output.UnderlyingValue()),
@@ -389,7 +385,7 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 		data.Output = utils.MapToDynamic(importData.Output)
 	}
 
-	payload := utils.ScriptPayload{
+	payload := utils.ExecutionPayload{
 		Id:     importData.Id,
 		Input:  importData.Input,
 		Output: importData.Output,

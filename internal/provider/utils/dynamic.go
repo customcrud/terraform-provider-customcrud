@@ -11,23 +11,10 @@ import (
 
 // MapToDynamic converts a Go value to a types.Dynamic value.
 func MapToDynamic(data interface{}) types.Dynamic {
-	switch v := data.(type) {
-	case map[string]interface{}:
-		attrs := make(map[string]attr.Value)
-		for k, val := range v {
-			attrs[k] = InterfaceToAttrValue(val)
-		}
-		objType := types.ObjectType{AttrTypes: make(map[string]attr.Type)}
-		for k := range attrs {
-			objType.AttrTypes[k] = attrs[k].Type(context.Background())
-		}
-		objVal, _ := types.ObjectValue(objType.AttrTypes, attrs)
-		return types.DynamicValue(objVal)
-	default:
-		return types.DynamicValue(InterfaceToAttrValue(v))
-	}
+	return types.DynamicValue(InterfaceToAttrValue(data))
 }
 
+// InterfaceToAttrValue converts a Go value to an attr.Value.
 // InterfaceToAttrValue converts a Go value to an attr.Value.
 func InterfaceToAttrValue(data interface{}) attr.Value {
 	switch v := data.(type) {
@@ -47,18 +34,6 @@ func InterfaceToAttrValue(data interface{}) attr.Value {
 		elements := make([]attr.Value, len(v))
 		for i, elem := range v {
 			elements[i] = InterfaceToAttrValue(elem)
-		}
-		firstType := elements[0].Type(context.Background())
-		isHomogeneous := true
-		for i := 1; i < len(elements); i++ {
-			if !elements[i].Type(context.Background()).Equal(firstType) {
-				isHomogeneous = false
-				break
-			}
-		}
-		if isHomogeneous {
-			listVal, _ := types.ListValue(firstType, elements)
-			return listVal
 		}
 		tupleTypes := make([]attr.Type, len(elements))
 		for i, elem := range elements {

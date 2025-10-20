@@ -87,7 +87,7 @@ func (d *customCrudDataSource) Read(ctx context.Context, req datasource.ReadRequ
 			return
 		}
 
-		payload := utils.ScriptPayload{
+		payload := utils.ExecutionPayload{
 			Input: utils.AttrValueToInterface(data.Input.UnderlyingValue()),
 		}
 		result, ok := utils.RunCrudScript(ctx, &data, payload, &resp.Diagnostics, utils.CrudRead)

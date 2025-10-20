@@ -89,7 +89,7 @@ func (op CrudOp) String() string {
 
 // RunCrudScript runs the appropriate CRUD script for the given op (CrudCreate, CrudRead, CrudUpdate, CrudDelete)
 // and handles error/diagnostic reporting. The model must implement CrudModel.
-func RunCrudScript(ctx context.Context, model CrudModel, payload ScriptPayload, diagnostics *diag.Diagnostics, op CrudOp) (*ScriptResult, bool) {
+func RunCrudScript(ctx context.Context, model CrudModel, payload ExecutionPayload, diagnostics *diag.Diagnostics, op CrudOp) (*ExecutionResult, bool) {
 	crud, err := GetCrudCommands(model)
 	if err != nil {
 		diagnostics.AddError("Error getting CRUD commands", err.Error())
@@ -114,7 +114,7 @@ func RunCrudScript(ctx context.Context, model CrudModel, payload ScriptPayload, 
 		diagnostics.AddError(fmt.Sprintf("Invalid %v Command", op), fmt.Sprintf("%v command cannot be empty", op))
 		return nil, false
 	}
-	result, err := ExecuteScript(ctx, cmd, payload)
+	result, err := Execute(ctx, cmd, payload)
 
 	title := cases.Title(language.English)
 	if err != nil {

@@ -10,21 +10,22 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-type ScriptPayload struct {
+type ExecutionPayload struct {
 	Id     string      `json:"id,omitempty"`
 	Input  interface{} `json:"input,omitempty"`
 	Output interface{} `json:"output,omitempty"`
 }
 
-type ScriptResult struct {
+type ExecutionResult struct {
+	Payload  string
 	Result   map[string]interface{}
 	Stdout   string
 	Stderr   string
 	ExitCode int
 }
 
-// ExecuteScript runs the given command with the provided payload, returning the result and any error.
-func ExecuteScript(ctx context.Context, cmd []string, payload ScriptPayload) (*ScriptResult, error) {
+// Execute runs the given command with the provided payload, returning the result and any error.
+func Execute(ctx context.Context, cmd []string, payload ExecutionPayload) (*ExecutionResult, error) {
 	if len(cmd) == 0 {
 		return nil, fmt.Errorf("empty command")
 	}
@@ -34,9 +35,10 @@ func ExecuteScript(ctx context.Context, cmd []string, payload ScriptPayload) (*S
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
+	payloadStr := string(payloadBytes)
 	tflog.Debug(ctx, "Executing script", map[string]interface{}{
 		"command": cmd,
-		"payload": string(payloadBytes),
+		"payload": payloadStr,
 	})
 
 	execCmd := exec.CommandContext(ctx, cmd[0], cmd[1:]...)
@@ -47,7 +49,8 @@ func ExecuteScript(ctx context.Context, cmd []string, payload ScriptPayload) (*S
 	execCmd.Stderr = &stderr
 
 	err = execCmd.Run()
-	result := &ScriptResult{
+	result := &ExecutionResult{
+		Payload:  payloadStr,
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
 		ExitCode: 0,
