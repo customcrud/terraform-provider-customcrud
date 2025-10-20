@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	utils "github.com/customcrud/terraform-provider-customcrud/internal/provider/utils"
+	"github.com/customcrud/terraform-provider-customcrud/internal/provider/utils"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -185,7 +185,7 @@ func TestAccResourceScriptFailures(t *testing.T) {
 		}
 
 		deleteCmd := strings.Fields(crud.Delete.ValueString())
-		result, err := utils.ExecuteScript(ctx, deleteCmd, utils.ScriptPayload{
+		result, err := utils.Execute(ctx, deleteCmd, utils.ExecutionPayload{
 			Id:     data.Id.ValueString(),
 			Input:  utils.AttrValueToInterface(data.Input.UnderlyingValue()),
 			Output: nil,
