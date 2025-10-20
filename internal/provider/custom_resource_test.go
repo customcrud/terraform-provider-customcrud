@@ -85,6 +85,12 @@ func TestAccExampleResourceEdgeCases(t *testing.T) {
 					resource.TestCheckResourceAttr("customcrud.test", "output.a.5.0", "1"),
 					resource.TestCheckResourceAttr("customcrud.test", "output.a.5.1", "2"),
 					resource.TestCheckResourceAttr("customcrud.test", "output.a.5.2", "3"),
+
+					resource.TestCheckResourceAttr("customcrud.test", "output.b.c.#", "3"),
+					resource.TestCheckResourceAttr("customcrud.test", "output.b.c.0", "a"),
+					resource.TestCheckResourceAttr("customcrud.test", "output.b.c.1", "b"),
+					resource.TestCheckResourceAttr("customcrud.test", "output.b.c.2", "c"),
+					resource.TestCheckResourceAttr("customcrud.test", "output.b.d.#", "0"),
 				),
 				// jq -n '{id: 1, a: [1, "2", false, null, [{"b": 3}], [1, 2, 3]]}'
 			},
@@ -93,7 +99,7 @@ func TestAccExampleResourceEdgeCases(t *testing.T) {
 				Config:                  testAccExampleResourceEdgeCaseConfig(createScript, readScript, deleteScript),
 				ResourceName:            "customcrud.test",
 				ImportState:             true,
-				ImportStateIdFunc:       testAccResourceImportStateIdFunc("customcrud.test", "{\"input\":{\"b\":{\"c\":[\"a\",\"b\",\"c\"]}}}", createScript, readScript, "", deleteScript),
+				ImportStateIdFunc:       testAccResourceImportStateIdFunc("customcrud.test", "{\"input\":{\"b\":{\"c\":[\"a\",\"b\",\"c\"],\"d\":[]}}}", createScript, readScript, "", deleteScript),
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"hooks"},
 			},
@@ -403,6 +409,7 @@ resource "customcrud" "test" {
   input = {
     b = {
       c = ["a", "b", "c"]
+	  d = []
     }
   }
 }
