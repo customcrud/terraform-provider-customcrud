@@ -11,23 +11,10 @@ import (
 
 // MapToDynamic converts a Go value to a types.Dynamic value.
 func MapToDynamic(data interface{}) types.Dynamic {
-	switch v := data.(type) {
-	case map[string]interface{}:
-		attrs := make(map[string]attr.Value)
-		for k, val := range v {
-			attrs[k] = InterfaceToAttrValue(val)
-		}
-		objType := types.ObjectType{AttrTypes: make(map[string]attr.Type)}
-		for k := range attrs {
-			objType.AttrTypes[k] = attrs[k].Type(context.Background())
-		}
-		objVal, _ := types.ObjectValue(objType.AttrTypes, attrs)
-		return types.DynamicValue(objVal)
-	default:
-		return types.DynamicValue(InterfaceToAttrValue(v))
-	}
+	return types.DynamicValue(InterfaceToAttrValue(data))
 }
 
+// InterfaceToAttrValue converts a Go value to an attr.Value.
 // InterfaceToAttrValue converts a Go value to an attr.Value.
 func InterfaceToAttrValue(data interface{}) attr.Value {
 	switch v := data.(type) {
@@ -48,18 +35,6 @@ func InterfaceToAttrValue(data interface{}) attr.Value {
 		for i, elem := range v {
 			elements[i] = InterfaceToAttrValue(elem)
 		}
-		firstType := elements[0].Type(context.Background())
-		isHomogeneous := true
-		for i := 1; i < len(elements); i++ {
-			if !elements[i].Type(context.Background()).Equal(firstType) {
-				isHomogeneous = false
-				break
-			}
-		}
-		if isHomogeneous {
-			listVal, _ := types.ListValue(firstType, elements)
-			return listVal
-		}
 		tupleTypes := make([]attr.Type, len(elements))
 		for i, elem := range elements {
 			tupleTypes[i] = elem.Type(context.Background())
@@ -79,6 +54,53 @@ func InterfaceToAttrValue(data interface{}) attr.Value {
 		return types.DynamicNull()
 	default:
 		return types.StringValue(fmt.Sprintf("%v", v))
+	}
+}
+
+// Method for recursively displaying types of a types.Dynamic value for debugging
+func DebugDynamicTypes(val types.Dynamic, indent string) {
+	underlying := val.UnderlyingValue()
+	switch v := underlying.(type) {
+	case types.String:
+		fmt.Printf("%sString\n", indent)
+	case types.Number:
+		fmt.Printf("%sNumber\n", indent)
+	case types.Bool:
+		fmt.Printf("%sBool\n", indent)
+	case types.List:
+		fmt.Printf("%sList of type: %s\n", indent, v.Type(context.Background()).String())
+		for i, elem := range v.Elements() {
+			if dynamicElem, ok := elem.(types.Dynamic); ok {
+				fmt.Printf("%s Element %d:\n", indent, i)
+				DebugDynamicTypes(dynamicElem, indent+"  ")
+			} else {
+				fmt.Printf("%s Element %d type: %s\n", indent, i, elem.Type(context.Background()).String())
+			}
+		}
+	case types.Tuple:
+		fmt.Printf("%sTuple\n", indent)
+		for i, elem := range v.Elements() {
+			if dynamicElem, ok := elem.(types.Dynamic); ok {
+				fmt.Printf("%s Element %d:\n", indent, i)
+				DebugDynamicTypes(dynamicElem, indent+"  ")
+			} else {
+				fmt.Printf("%s Element %d type: %s\n", indent, i, elem.Type(context.Background()).String())
+			}
+		}
+	case types.Object:
+		fmt.Printf("%sObject\n", indent)
+		for k, attr := range v.Attributes() {
+			if dynamicAttr, ok := attr.(types.Dynamic); ok {
+				fmt.Printf("%s Attribute '%s':\n", indent, k)
+				DebugDynamicTypes(dynamicAttr, indent+"  ")
+			} else {
+				fmt.Printf("%s Attribute '%s' type: %s\n", indent, k, attr.Type(context.Background()).String())
+			}
+		}
+	case types.Dynamic:
+		fmt.Printf("%sDynamic\n", indent)
+	default:
+		fmt.Printf("%sType: %s\n", indent, underlying.Type(context.Background()).String())
 	}
 }
 
