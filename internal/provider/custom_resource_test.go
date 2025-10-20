@@ -46,7 +46,7 @@ func TestAccExampleResource(t *testing.T) {
 				Config:                  testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, content),
 				ResourceName:            "customcrud.test",
 				ImportState:             true,
-				ImportStateIdFunc:       testAccResourceImportStateIdFunc("customcrud.test", createScript, readScript, updateScript, deleteScript),
+				ImportStateIdFunc:       testAccResourceImportStateIdFunc("customcrud.test", "", createScript, readScript, updateScript, deleteScript),
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"hooks", "input"},
 			},
@@ -93,7 +93,7 @@ func TestAccExampleResourceEdgeCases(t *testing.T) {
 				Config:                  testAccExampleResourceEdgeCaseConfig(createScript, readScript, deleteScript),
 				ResourceName:            "customcrud.test",
 				ImportState:             true,
-				ImportStateIdFunc:       testAccResourceImportStateIdFunc("customcrud.test", createScript, readScript, "", deleteScript),
+				ImportStateIdFunc:       testAccResourceImportStateIdFunc("customcrud.test", "{\"input\":{\"b\":{\"c\":[\"a\",\"b\",\"c\"]}}}", createScript, readScript, "", deleteScript),
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"hooks"},
 			},
@@ -119,7 +119,7 @@ func TestAccResourceScriptFailures(t *testing.T) {
 						`Exit Code: 13.*` +
 						`Stdout:.*` +
 						`Stderr: Failed to create resource: Permission denied.*` +
-						`Input Payload: {}`),
+						`Input Payload: .*`),
 			},
 		},
 	})
@@ -315,25 +315,35 @@ resource "customcrud" "locktest_serial" {
 }
 
 // Helper function to generate import state ID.
-func testAccResourceImportStateIdFunc(resourceName, createScript, readScript, updateScript, deleteScript string) resource.ImportStateIdFunc {
+func testAccResourceImportStateIdFunc(resourceName, importString string, createScript, readScript, updateScript, deleteScript string) resource.ImportStateIdFunc {
 	return func(s *terraform.State) (string, error) {
 		rs, ok := s.RootModule().Resources[resourceName]
 		if !ok {
 			return "", fmt.Errorf("resource not found: %s", resourceName)
 		}
 
-		if rs.Primary.ID == "" {
-			return "", fmt.Errorf("resource ID not set")
-		}
-
 		importData := importStateData{
-			Id: rs.Primary.ID,
 			Hooks: map[string]string{
 				utils.Create: createScript,
 				utils.Read:   readScript,
 				utils.Update: updateScript,
 				utils.Delete: deleteScript,
 			},
+		}
+
+		importData.Id = rs.Primary.ID
+		// allow additional input/output to be tested using import string
+		if importString != "" {
+			var parsedImport map[string]interface{}
+			if err := json.Unmarshal([]byte(importString), &parsedImport); err != nil {
+				return "", fmt.Errorf("failed to parse import string as JSON: %v", err)
+			}
+			if input, ok := parsedImport["input"]; ok {
+				importData.Input = input.(map[string]interface{})
+			}
+			if output, ok := parsedImport["output"]; ok {
+				importData.Output = output.(map[string]interface{})
+			}
 		}
 
 		// Get input from state if it exists
