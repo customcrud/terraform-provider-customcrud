@@ -162,7 +162,7 @@ func getCrudCommands(data *customCrudResourceModel) (*hooksBlockValue, error) {
 	if create, ok := attrs[utils.Create].(types.String); ok {
 		crud.Create = create
 	}
-	if read, ok := attrs[utils.Create].(types.String); ok {
+	if read, ok := attrs[utils.Read].(types.String); ok {
 		crud.Read = read
 	}
 	if update, ok := attrs[utils.Update].(types.String); ok {
