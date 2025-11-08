@@ -20,7 +20,7 @@ func TestAccCustomCrudDataSource_File(t *testing.T) {
 	}
 	tempFile.Close()
 
-	readScript := "../../examples/file/hooks/read.sh"
+	readScript := "../../examples/modules/file/hooks/read.sh"
 
 	config := strings.ReplaceAll(`
 	data "customcrud" "test" {

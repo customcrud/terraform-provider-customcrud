@@ -23,10 +23,10 @@ func TestAccExampleResource(t *testing.T) {
 	content := "Initial content"
 	updatedContent := "Updated content"
 
-	createScript := "../../examples/file/hooks/create.sh"
-	readScript := "../../examples/file/hooks/read.sh"
-	updateScript := "../../examples/file/hooks/update.sh"
-	deleteScript := "../../examples/file/hooks/delete.sh"
+	createScript := "../../examples/modules/file/hooks/create.sh"
+	readScript := "../../examples/modules/file/hooks/read.sh"
+	updateScript := "../../examples/modules/file/hooks/update.sh"
+	deleteScript := "../../examples/modules/file/hooks/delete.sh"
 
 	// Single test case with all steps including import
 	resource.Test(t, resource.TestCase{
@@ -66,9 +66,9 @@ func TestAccExampleResourceNoUpdateHookForcesRecreation(t *testing.T) {
 	content := "Initial content for recreation test"
 	updatedContent := "Updated content for recreation test"
 
-	createScript := "../../examples/file/hooks/create.sh"
-	readScript := "../../examples/file/hooks/read.sh"
-	deleteScript := "../../examples/file/hooks/delete.sh"
+	createScript := "../../examples/modules/file/hooks/create.sh"
+	readScript := "../../examples/modules/file/hooks/read.sh"
+	deleteScript := "../../examples/modules/file/hooks/delete.sh"
 
 	var initialID string
 
@@ -212,7 +212,7 @@ func TestAccResourceScriptFailures(t *testing.T) {
 				utils.Delete: types.StringType,
 			},
 			map[string]attr.Value{
-				utils.Create: types.StringValue("../../examples/file/create.sh"),
+				utils.Create: types.StringValue("../../examples/modules/file/create.sh"),
 				utils.Read:   types.StringValue(readScript),
 				utils.Update: types.StringNull(),
 				utils.Delete: types.StringValue(deleteScript),
@@ -271,9 +271,9 @@ func TestAccResourceScriptFailures(t *testing.T) {
 }
 
 func TestAccResourceRemovedRemote(t *testing.T) {
-	createScript := "../../examples/file/hooks/create.sh"
-	readScript := "../../examples/file/hooks/read.sh"
-	deleteScript := "../../examples/file/hooks/delete.sh"
+	createScript := "../../examples/modules/file/hooks/create.sh"
+	readScript := "../../examples/modules/file/hooks/read.sh"
+	deleteScript := "../../examples/modules/file/hooks/delete.sh"
 	readScriptSimulateRemoval := "test_resource_removed_remote/read_simulate_removed_remote.sh"
 
 	content := "Test content for remote removal"
