@@ -62,6 +62,61 @@ func TestAccExampleResource(t *testing.T) {
 	})
 }
 
+func TestAccExampleResourceNoUpdateHookForcesRecreation(t *testing.T) {
+	content := "Initial content for recreation test"
+	updatedContent := "Updated content for recreation test"
+
+	createScript := "../../examples/file/hooks/create.sh"
+	readScript := "../../examples/file/hooks/read.sh"
+	deleteScript := "../../examples/file/hooks/delete.sh"
+
+	var initialID string
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// Create with no update hook (empty string)
+				Config: testAccExampleResourceConfig(createScript, readScript, "", deleteScript, content),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("customcrud.test", "output.content", content),
+					resource.TestCheckResourceAttrSet("customcrud.test", "id"),
+					// Store the initial ID to verify it changes after recreation
+					func(s *terraform.State) error {
+						rs, ok := s.RootModule().Resources["customcrud.test"]
+						if !ok {
+							return fmt.Errorf("resource not found: customcrud.test")
+						}
+						initialID = rs.Primary.ID
+						return nil
+					},
+				),
+			},
+			{
+				// Change input while update hook is not provided; provider should force replacement
+				Config: testAccExampleResourceConfig(createScript, readScript, "", deleteScript, updatedContent),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("customcrud.test", "output.content", updatedContent),
+					resource.TestCheckResourceAttrSet("customcrud.test", "id"),
+					// Verify the ID changed, indicating the resource was recreated
+					func(s *terraform.State) error {
+						rs, ok := s.RootModule().Resources["customcrud.test"]
+						if !ok {
+							return fmt.Errorf("resource not found: customcrud.test")
+						}
+						newID := rs.Primary.ID
+						if newID == initialID {
+							return fmt.Errorf("expected resource ID to change after forced recreation, but it remained the same: %s", newID)
+						}
+						return nil
+					},
+				),
+			},
+		},
+	})
+}
+
 func TestAccExampleResourceEdgeCases(t *testing.T) {
 	createScript := "test_edgecases/create.sh"
 	readScript := "test_edgecases/read.sh"
