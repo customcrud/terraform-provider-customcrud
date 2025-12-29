@@ -19,3 +19,4 @@ jobs:
           issue-lock-reason: resolved
           pr-inactive-days: '30'
           pr-lock-reason: resolved
+          process-only: 'issues, prs'
