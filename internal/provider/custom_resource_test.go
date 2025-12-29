@@ -383,16 +383,19 @@ func testAccResourceImportStateIdFunc(resourceName, importString string, createS
 
 //nolint:unparam
 func testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, content string) string {
+	if updateScript != "" {
+		updateScript = fmt.Sprintf("update = %q", updateScript)
+	}
 	return fmt.Sprintf(`
 resource "customcrud" "test" {
   hooks {
-    create = %[1]q
-    read   = %[2]q
-    update = %[3]q
-    delete = %[4]q
+    create = %q
+    read   = %q
+	%s
+    delete = %q
   }
   input = {
-    content = %[5]q
+    content = %q
   }
 }
 `, createScript, readScript, updateScript, deleteScript, content)
@@ -402,9 +405,9 @@ func testAccExampleResourceEdgeCaseConfig(createScript, readScript, deleteScript
 	return fmt.Sprintf(`
 resource "customcrud" "test" {
   hooks {
-    create = %[1]q
-    read   = %[2]q
-    delete = %[3]q
+    create = %q
+    read   = %q
+    delete = %q
   }
 
   input = {
@@ -430,4 +433,33 @@ resource "customcrud" "test" {
   }
 }
 `, createScript, readScript, deleteScript, content)
+}
+
+func TestAccExampleResourceHooksUpdate(t *testing.T) {
+	content := "Initial content"
+
+	createScript := "../../examples/file/hooks/create.sh"
+	readScript := "../../examples/file/hooks/read.sh"
+	createScriptModified := "../../examples/file/hooks/create.sh --dummy-arg"
+	deleteScript := "../../examples/file/hooks/delete.sh"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccExampleResourceConfig(createScript, readScript, "", deleteScript, content),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("customcrud.test", "output.content", content),
+				),
+			},
+			// Update just the created hook
+			{
+				Config: testAccExampleResourceConfig(createScriptModified, readScript, "", deleteScript, content),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("customcrud.test", "output.content", content),
+				),
+			},
+		},
+	})
 }
