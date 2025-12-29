@@ -381,6 +381,7 @@ func testAccResourceImportStateIdFunc(resourceName, importString string, createS
 	}
 }
 
+//nolint:unparam
 func testAccExampleResourceConfig(createScript, readScript, updateScript, deleteScript, content string) string {
 	return fmt.Sprintf(`
 resource "customcrud" "test" {
