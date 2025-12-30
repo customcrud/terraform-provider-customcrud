@@ -31,5 +31,5 @@ data "customcrud" "file" {
 }
 
 output "file_contents" {
-  value = data.customcrud_data.file.output.content
+  value = data.customcrud.file.output.content
 }

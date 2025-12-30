@@ -274,6 +274,14 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 			Input:  utils.AttrValueToInterface(plan.Input.UnderlyingValue()),
 			Output: utils.AttrValueToInterface(state.Output.UnderlyingValue()),
 		}
+		// Only run crud script if input has changed, hook changes shouldn't trigger execution
+		if state.Input.Equal(plan.Input) {
+			tflog.Info(ctx, "Hook-only change, skipping update execution")
+			plan.Input = state.Input
+			plan.Output = state.Output
+			resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
+			return
+		}
 		result, ok := utils.RunCrudScript(ctx, plan, payload, &resp.Diagnostics, utils.CrudUpdate)
 		if !ok {
 			return
