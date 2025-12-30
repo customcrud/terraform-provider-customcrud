@@ -31,10 +31,11 @@ var _ resource.ResourceWithConfigure = &customCrudResource{}
 
 // CustomCrudResource implementation.
 type customCrudResourceModel struct {
-	Id     types.String  `tfsdk:"id"`
-	Hooks  types.List    `tfsdk:"hooks"`
-	Input  types.Dynamic `tfsdk:"input"`
-	Output types.Dynamic `tfsdk:"output"`
+	Id      types.String  `tfsdk:"id"`
+	Hooks   types.List    `tfsdk:"hooks"`
+	Input   types.Dynamic `tfsdk:"input"`
+	InputWO types.String  `tfsdk:"input_wo"`
+	Output  types.Dynamic `tfsdk:"output"`
 }
 
 func (m *customCrudResourceModel) GetHooks() types.List {
@@ -73,6 +74,12 @@ func (r *customCrudResource) Schema(ctx context.Context, req resource.SchemaRequ
 			"input": schema.DynamicAttribute{
 				Optional:    true,
 				Description: "Input data for the resource",
+			},
+			"input_wo": schema.StringAttribute{
+				Optional:    true,
+				Sensitive:   true,
+				WriteOnly:   true,
+				Description: "Write-only input data (JSON string) for the resource, merged with input",
 			},
 			"output": schema.DynamicAttribute{
 				Computed:    true,
@@ -204,9 +211,17 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 		if !ok {
 			return
 		}
+
+		// Read configuration to get the write-only input
+		var config customCrudResourceModel
+		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
 		payload := utils.ExecutionPayload{
 			Id:     plan.Id.ValueString(),
-			Input:  utils.AttrValueToInterface(plan.Input.UnderlyingValue()),
+			Input:  r.mergeInputWithWO(plan.Input, config.InputWO),
 			Output: utils.AttrValueToInterface(plan.Output.UnderlyingValue()),
 		}
 		result, ok := utils.RunCrudScript(ctx, plan, payload, &resp.Diagnostics, utils.CrudCreate)
@@ -269,9 +284,16 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 		if !ok {
 			return
 		}
+		// Read configuration to get the write-only input, as it's nullified in the plan
+		var config customCrudResourceModel
+		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
 		payload := utils.ExecutionPayload{
 			Id:     plan.Id.ValueString(),
-			Input:  utils.AttrValueToInterface(plan.Input.UnderlyingValue()),
+			Input:  r.mergeInputWithWO(plan.Input, config.InputWO),
 			Output: utils.AttrValueToInterface(state.Output.UnderlyingValue()),
 		}
 		// Only run crud script if input has changed, hook changes shouldn't trigger execution
@@ -442,4 +464,35 @@ func (r *customCrudResource) mergeInputWithOutput(input types.Dynamic, output ma
 	}
 
 	return utils.MapToDynamic(merged)
+}
+
+func (r *customCrudResource) mergeInputWithWO(input types.Dynamic, inputWO types.String) interface{} {
+	// Start with normal input
+	var inputMap map[string]interface{}
+	if !input.IsNull() && !input.IsUnknown() {
+		if m, ok := utils.AttrValueToInterface(input.UnderlyingValue()).(map[string]interface{}); ok {
+			inputMap = m
+		}
+	}
+	if inputMap == nil {
+		inputMap = make(map[string]interface{})
+	}
+
+	// Create a copy to avoid modifying original if it's reused
+	merged := make(map[string]interface{})
+	for k, v := range inputMap {
+		merged[k] = v
+	}
+
+	// Merge WO input
+	if !inputWO.IsNull() && !inputWO.IsUnknown() {
+		var woMap map[string]interface{}
+		if err := json.Unmarshal([]byte(inputWO.ValueString()), &woMap); err == nil {
+			for k, v := range woMap {
+				merged[k] = v
+			}
+		}
+	}
+
+	return merged
 }

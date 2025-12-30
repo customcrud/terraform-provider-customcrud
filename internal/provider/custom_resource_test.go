@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -458,6 +459,56 @@ func TestAccExampleResourceHooksUpdate(t *testing.T) {
 				Config: testAccExampleResourceConfig(createScriptModified, readScript, "", deleteScript, content),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("customcrud.test", "output.content", content),
+				),
+			},
+		},
+	})
+}
+
+func TestAccResourceWithInputWO(t *testing.T) {
+	createScript := "test_write_only/create.sh"
+	readScript := "test_write_only/read.sh"
+	updateScript := "test_write_only/update.sh"
+	deleteScript := "test_write_only/delete.sh"
+	content := "hidden"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "customcrud" "test_wo" {
+  hooks {
+    create = %q
+    read   = %q
+    update = %q
+    delete = %q
+  }
+  input_wo = "{\"content\": \"%s\"}"
+}
+`, createScript, readScript, updateScript, deleteScript, content),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					func(s *terraform.State) error {
+						resourceName := "customcrud.test_wo"
+						rs, ok := s.RootModule().Resources[resourceName]
+						if !ok {
+							return fmt.Errorf("Not found: %s", resourceName)
+						}
+						id := rs.Primary.ID
+						if id == "" {
+							return fmt.Errorf("No ID set")
+						}
+
+						fileContent, err := os.ReadFile(id)
+						if err != nil {
+							return fmt.Errorf("Failed to read file %s: %v", id, err)
+						}
+						if string(fileContent) != content {
+							return fmt.Errorf("File %s content '%s' does not match '%s'", id, string(fileContent), content)
+						}
+						return nil
+					},
 				),
 			},
 		},
