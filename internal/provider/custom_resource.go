@@ -197,14 +197,13 @@ func (r *customCrudResource) Configure(ctx context.Context, req resource.Configu
 // Helper to extract model from request and append diagnostics.
 func extractModel[T any](ctx context.Context, getFn func(context.Context, any) diag.Diagnostics, diagnostics *diag.Diagnostics) (*T, bool) {
 	var model T
-	*diagnostics = append(*diagnostics, getFn(ctx, &model)...) // append diagnostics
+	*diagnostics = append(*diagnostics, getFn(ctx, &model)...)
 	if diagnostics.HasError() {
 		return nil, false
 	}
 	return &model, true
 }
 
-// Refactored CRUD methods.
 func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	utils.WithSemaphore(r.semaphore, func() {
 		plan, ok := extractModel[customCrudResourceModel](ctx, req.Plan.Get, &resp.Diagnostics)
@@ -212,7 +211,6 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 			return
 		}
 
-		// Read configuration to get the write-only input
 		var config customCrudResourceModel
 		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 		if resp.Diagnostics.HasError() {
@@ -284,7 +282,7 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 		if !ok {
 			return
 		}
-		// Read configuration to get the write-only input, as it's nullified in the plan
+
 		var config customCrudResourceModel
 		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 		if resp.Diagnostics.HasError() {
@@ -467,7 +465,6 @@ func (r *customCrudResource) mergeInputWithOutput(input types.Dynamic, output ma
 }
 
 func (r *customCrudResource) mergeInputWithWO(input types.Dynamic, inputWO types.String) interface{} {
-	// Start with normal input
 	var inputMap map[string]interface{}
 	if !input.IsNull() && !input.IsUnknown() {
 		if m, ok := utils.AttrValueToInterface(input.UnderlyingValue()).(map[string]interface{}); ok {
@@ -478,13 +475,11 @@ func (r *customCrudResource) mergeInputWithWO(input types.Dynamic, inputWO types
 		inputMap = make(map[string]interface{})
 	}
 
-	// Create a copy to avoid modifying original if it's reused
 	merged := make(map[string]interface{})
 	for k, v := range inputMap {
 		merged[k] = v
 	}
 
-	// Merge WO input
 	if !inputWO.IsNull() && !inputWO.IsUnknown() {
 		var woMap map[string]interface{}
 		if err := json.Unmarshal([]byte(inputWO.ValueString()), &woMap); err == nil {
