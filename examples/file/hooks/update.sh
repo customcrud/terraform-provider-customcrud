@@ -6,5 +6,5 @@ input="$(cat)"
 id="$(echo "$input" | jq -r ".id")"
 content="$(echo "$input" | jq -r ".input.content")"
 
-echo "$content" > "$id"
+echo -n "$content" > "$id"
 jq -n --arg id "$id" --arg content "$(cat "$id")" '{id: $id, content: $content}'

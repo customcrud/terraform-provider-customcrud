@@ -1,0 +1,1 @@
+../../../examples/file/hooks/delete.sh

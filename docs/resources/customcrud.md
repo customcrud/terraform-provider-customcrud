@@ -58,8 +58,11 @@ resource "customcrud" "file" {
 
 ### Optional
 
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
+
 - `hooks` (Block List) (see [below for nested schema](#nestedblock--hooks))
 - `input` (Dynamic) Input data for the resource
+- `input_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only input data (JSON string) for the resource, merged with input
 
 ### Read-Only
 

@@ -6,8 +6,6 @@ terraform {
   }
 }
 
-provider "customcrud" {}
-
 resource "customcrud" "file" {
   hooks {
     create = "hooks/create.sh"

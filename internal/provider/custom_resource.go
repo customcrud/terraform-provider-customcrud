@@ -31,10 +31,11 @@ var _ resource.ResourceWithConfigure = &customCrudResource{}
 
 // CustomCrudResource implementation.
 type customCrudResourceModel struct {
-	Id     types.String  `tfsdk:"id"`
-	Hooks  types.List    `tfsdk:"hooks"`
-	Input  types.Dynamic `tfsdk:"input"`
-	Output types.Dynamic `tfsdk:"output"`
+	Id      types.String  `tfsdk:"id"`
+	Hooks   types.List    `tfsdk:"hooks"`
+	Input   types.Dynamic `tfsdk:"input"`
+	InputWO types.String  `tfsdk:"input_wo"`
+	Output  types.Dynamic `tfsdk:"output"`
 }
 
 func (m *customCrudResourceModel) GetHooks() types.List {
@@ -73,6 +74,12 @@ func (r *customCrudResource) Schema(ctx context.Context, req resource.SchemaRequ
 			"input": schema.DynamicAttribute{
 				Optional:    true,
 				Description: "Input data for the resource",
+			},
+			"input_wo": schema.StringAttribute{
+				Optional:    true,
+				Sensitive:   true,
+				WriteOnly:   true,
+				Description: "Write-only input data (JSON string) for the resource, merged with input",
 			},
 			"output": schema.DynamicAttribute{
 				Computed:    true,
@@ -190,23 +197,29 @@ func (r *customCrudResource) Configure(ctx context.Context, req resource.Configu
 // Helper to extract model from request and append diagnostics.
 func extractModel[T any](ctx context.Context, getFn func(context.Context, any) diag.Diagnostics, diagnostics *diag.Diagnostics) (*T, bool) {
 	var model T
-	*diagnostics = append(*diagnostics, getFn(ctx, &model)...) // append diagnostics
+	*diagnostics = append(*diagnostics, getFn(ctx, &model)...)
 	if diagnostics.HasError() {
 		return nil, false
 	}
 	return &model, true
 }
 
-// Refactored CRUD methods.
 func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	utils.WithSemaphore(r.semaphore, func() {
 		plan, ok := extractModel[customCrudResourceModel](ctx, req.Plan.Get, &resp.Diagnostics)
 		if !ok {
 			return
 		}
+
+		var config customCrudResourceModel
+		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
 		payload := utils.ExecutionPayload{
 			Id:     plan.Id.ValueString(),
-			Input:  utils.AttrValueToInterface(plan.Input.UnderlyingValue()),
+			Input:  r.mergeInputWithWO(plan.Input, config.InputWO),
 			Output: utils.AttrValueToInterface(plan.Output.UnderlyingValue()),
 		}
 		result, ok := utils.RunCrudScript(ctx, plan, payload, &resp.Diagnostics, utils.CrudCreate)
@@ -269,9 +282,16 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 		if !ok {
 			return
 		}
+
+		var config customCrudResourceModel
+		resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
 		payload := utils.ExecutionPayload{
 			Id:     plan.Id.ValueString(),
-			Input:  utils.AttrValueToInterface(plan.Input.UnderlyingValue()),
+			Input:  r.mergeInputWithWO(plan.Input, config.InputWO),
 			Output: utils.AttrValueToInterface(state.Output.UnderlyingValue()),
 		}
 		// Only run crud script if input has changed, hook changes shouldn't trigger execution
@@ -442,4 +462,32 @@ func (r *customCrudResource) mergeInputWithOutput(input types.Dynamic, output ma
 	}
 
 	return utils.MapToDynamic(merged)
+}
+
+func (r *customCrudResource) mergeInputWithWO(input types.Dynamic, inputWO types.String) interface{} {
+	var inputMap map[string]interface{}
+	if !input.IsNull() && !input.IsUnknown() {
+		if m, ok := utils.AttrValueToInterface(input.UnderlyingValue()).(map[string]interface{}); ok {
+			inputMap = m
+		}
+	}
+	if inputMap == nil {
+		inputMap = make(map[string]interface{})
+	}
+
+	merged := make(map[string]interface{})
+	for k, v := range inputMap {
+		merged[k] = v
+	}
+
+	if !inputWO.IsNull() && !inputWO.IsUnknown() {
+		var woMap map[string]interface{}
+		if err := json.Unmarshal([]byte(inputWO.ValueString()), &woMap); err == nil {
+			for k, v := range woMap {
+				merged[k] = v
+			}
+		}
+	}
+
+	return merged
 }
