@@ -192,7 +192,7 @@ func TestAccResourceScriptFailures(t *testing.T) {
 		}
 
 		deleteCmd := strings.Fields(crud.Delete.ValueString())
-		result, err := utils.Execute(ctx, deleteCmd, utils.ExecutionPayload{
+		result, err := utils.Execute(ctx, utils.CustomCRUDProviderConfigDefaults(), deleteCmd, utils.ExecutionPayload{
 			Id:     data.Id.ValueString(),
 			Input:  utils.AttrValueToInterface(data.Input.UnderlyingValue()),
 			Output: nil,
@@ -509,6 +509,78 @@ resource "customcrud" "test_wo" {
 						}
 						return nil
 					},
+				),
+			},
+		},
+	})
+}
+
+func TestAccResourceWithFloat(t *testing.T) {
+	createScript := "test_precision/create.sh"
+	readScript := "test_precision/read.sh"
+	updateScript := "test_precision/update.sh"
+	deleteScript := "test_precision/delete.sh"
+	inputConfig := "0.001"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "customcrud" "test_float" {
+  hooks {
+    create = %q
+    read   = %q
+    update = %q
+    delete = %q
+  }
+  input = {
+	target = %s
+  }
+}
+`, createScript, readScript, updateScript, deleteScript, inputConfig),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("customcrud.test_float", "id"),
+					resource.TestCheckResourceAttr("customcrud.test_float", "output.target", inputConfig),
+				),
+				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
+}
+func TestAccResourceWithHighPrecision(t *testing.T) {
+	createScript := "test_precision/create.sh"
+	readScript := "test_precision/read.sh"
+	updateScript := "test_precision/update.sh"
+	deleteScript := "test_precision/delete.sh"
+	inputConfig := "0.001"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+provider "customcrud" {
+  high_precision_numbers = true
+}
+
+resource "customcrud" "test_float" {
+  hooks {
+    create = %q
+    read   = %q
+    update = %q
+    delete = %q
+  }
+  input = {
+	target = %s
+  }
+}
+`, createScript, readScript, updateScript, deleteScript, inputConfig),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("customcrud.test_float", "id"),
+					resource.TestCheckResourceAttr("customcrud.test_float", "output.target", inputConfig),
 				),
 			},
 		},

@@ -26,7 +26,7 @@ func (m *customCrudDataSourceModel) GetHooks() types.List {
 }
 
 type customCrudDataSource struct {
-	semaphore chan struct{}
+	config utils.CustomCRUDProviderConfig
 }
 
 func NewCustomCrudDataSource() datasource.DataSource {
@@ -69,18 +69,16 @@ func (d *customCrudDataSource) Schema(ctx context.Context, req datasource.Schema
 
 func (d *customCrudDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
 	if req.ProviderData == nil {
-		d.semaphore = nil
+		d.config = utils.CustomCRUDProviderConfigDefaults()
 		return
 	}
-	if sem, ok := req.ProviderData.(chan struct{}); ok {
-		d.semaphore = sem
-	} else {
-		d.semaphore = nil
+	if data, ok := req.ProviderData.(*CustomCRUDProvider); ok {
+		d.config = data.config
 	}
 }
 
 func (d *customCrudDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	utils.WithSemaphore(d.semaphore, func() {
+	utils.WithSemaphore(d.config.Semaphore, func() {
 		var data customCrudDataSourceModel
 		resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
 		if resp.Diagnostics.HasError() {
@@ -90,7 +88,7 @@ func (d *customCrudDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		payload := utils.ExecutionPayload{
 			Input: utils.AttrValueToInterface(data.Input.UnderlyingValue()),
 		}
-		result, ok := utils.RunCrudScript(ctx, &data, payload, &resp.Diagnostics, utils.CrudRead)
+		result, ok := utils.RunCrudScript(ctx, d.config, &data, payload, &resp.Diagnostics, utils.CrudRead)
 		if !ok {
 			return
 		}

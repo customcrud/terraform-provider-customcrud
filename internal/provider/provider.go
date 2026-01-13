@@ -6,6 +6,7 @@ package provider
 import (
 	"context"
 
+	"github.com/customcrud/terraform-provider-customcrud/internal/provider/utils"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/function"
@@ -25,15 +26,14 @@ type CustomCRUDProvider struct {
 	// version is set to the provider version on release, "dev" when the
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
-	version     string
-	parallelism int
-	semaphore   chan struct{} // nil if no limit
+	version string
+	config  utils.CustomCRUDProviderConfig
 }
 
-// CustomCRUDProviderModel describes the provider data model.
 type CustomCRUDProviderModel struct {
 	// Provider-level configuration can be added here if needed
-	Parallelism types.Int64 `tfsdk:"parallelism"`
+	Parallelism          types.Int64 `tfsdk:"parallelism"`
+	HighPrecisionNumbers types.Bool  `tfsdk:"high_precision_numbers"`
 }
 
 func (p *CustomCRUDProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -49,6 +49,10 @@ func (p *CustomCRUDProvider) Schema(ctx context.Context, req provider.SchemaRequ
 				Optional:            true,
 				MarkdownDescription: "Maximum number of scripts to execute in parallel. 0 means unlimited (default).",
 			},
+			"high_precision_numbers": schema.BoolAttribute{
+				Optional:            true,
+				MarkdownDescription: "Enable high precision for floating point numbers. This will cause the json parsing for outputs to use 512-bit floats instead of the default 64-bit.",
+			},
 			// Provider configuration attributes can be added here
 		},
 	}
@@ -58,24 +62,26 @@ func (p *CustomCRUDProvider) Configure(ctx context.Context, req provider.Configu
 	var data CustomCRUDProviderModel
 
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...) // get config into data
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	if data.Parallelism.IsNull() || data.Parallelism.IsUnknown() {
-		p.parallelism = 0
-	} else {
-		p.parallelism = int(data.Parallelism.ValueInt64())
-	}
-	if p.parallelism > 0 {
-		p.semaphore = make(chan struct{}, p.parallelism)
-	} else {
-		p.semaphore = nil // unlimited
+	p.config = utils.CustomCRUDProviderConfigDefaults()
+
+	if !data.Parallelism.IsNull() && !data.Parallelism.IsUnknown() {
+		p.config.Parallelism = int(data.Parallelism.ValueInt64())
 	}
 
-	// Pass the semaphore to resources via ResourceData
-	resp.ResourceData = p.semaphore
+	if p.config.Parallelism > 0 {
+		p.config.Semaphore = make(chan struct{}, p.config.Parallelism)
+	}
+
+	if !data.HighPrecisionNumbers.IsNull() {
+		p.config.HighPrecisionNumbers = data.HighPrecisionNumbers.ValueBool()
+	}
+
+	resp.ResourceData = p
+	resp.DataSourceData = p
 }
 
 func (p *CustomCRUDProvider) Resources(ctx context.Context) []func() resource.Resource {

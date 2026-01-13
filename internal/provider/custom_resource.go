@@ -50,7 +50,7 @@ type hooksBlockValue struct {
 }
 
 type customCrudResource struct {
-	semaphore chan struct{}
+	config utils.CustomCRUDProviderConfig
 }
 
 func NewCustomCrudResource() resource.Resource {
@@ -184,13 +184,11 @@ func getCrudCommands(data *customCrudResourceModel) (*hooksBlockValue, error) {
 
 func (r *customCrudResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
-		r.semaphore = nil
+		r.config = utils.CustomCRUDProviderConfigDefaults()
 		return
 	}
-	if sem, ok := req.ProviderData.(chan struct{}); ok {
-		r.semaphore = sem
-	} else {
-		r.semaphore = nil
+	if data, ok := req.ProviderData.(*CustomCRUDProvider); ok {
+		r.config = data.config
 	}
 }
 
@@ -205,7 +203,7 @@ func extractModel[T any](ctx context.Context, getFn func(context.Context, any) d
 }
 
 func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	utils.WithSemaphore(r.semaphore, func() {
+	utils.WithSemaphore(r.config.Semaphore, func() {
 		plan, ok := extractModel[customCrudResourceModel](ctx, req.Plan.Get, &resp.Diagnostics)
 		if !ok {
 			return
@@ -222,7 +220,7 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 			Input:  r.mergeInputWithWO(plan.Input, config.InputWO),
 			Output: utils.AttrValueToInterface(plan.Output.UnderlyingValue()),
 		}
-		result, ok := utils.RunCrudScript(ctx, plan, payload, &resp.Diagnostics, utils.CrudCreate)
+		result, ok := utils.RunCrudScript(ctx, r.config, plan, payload, &resp.Diagnostics, utils.CrudCreate)
 		if !ok {
 			return
 		}
@@ -248,7 +246,7 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 }
 
 func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	utils.WithSemaphore(r.semaphore, func() {
+	utils.WithSemaphore(r.config.Semaphore, func() {
 		state, ok := extractModel[customCrudResourceModel](ctx, req.State.Get, &resp.Diagnostics)
 		if !ok {
 			return
@@ -258,7 +256,7 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 			Input:  utils.AttrValueToInterface(state.Input.UnderlyingValue()),
 			Output: utils.AttrValueToInterface(state.Output.UnderlyingValue()),
 		}
-		result, ok := utils.RunCrudScript(ctx, state, payload, &resp.Diagnostics, utils.CrudRead)
+		result, ok := utils.RunCrudScript(ctx, r.config, state, payload, &resp.Diagnostics, utils.CrudRead)
 		if !ok {
 			// Special case: treat exit code 22 as resource removed
 			if result != nil && result.ExitCode == 22 {
@@ -273,7 +271,7 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 }
 
 func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	utils.WithSemaphore(r.semaphore, func() {
+	utils.WithSemaphore(r.config.Semaphore, func() {
 		plan, ok := extractModel[customCrudResourceModel](ctx, req.Plan.Get, &resp.Diagnostics)
 		if !ok {
 			return
@@ -302,7 +300,7 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 			resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 			return
 		}
-		result, ok := utils.RunCrudScript(ctx, plan, payload, &resp.Diagnostics, utils.CrudUpdate)
+		result, ok := utils.RunCrudScript(ctx, r.config, plan, payload, &resp.Diagnostics, utils.CrudUpdate)
 		if !ok {
 			return
 		}
@@ -323,7 +321,7 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 }
 
 func (r *customCrudResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	utils.WithSemaphore(r.semaphore, func() {
+	utils.WithSemaphore(r.config.Semaphore, func() {
 		data, ok := extractModel[customCrudResourceModel](ctx, req.State.Get, &resp.Diagnostics)
 		if !ok {
 			return
@@ -333,7 +331,7 @@ func (r *customCrudResource) Delete(ctx context.Context, req resource.DeleteRequ
 			Input:  utils.AttrValueToInterface(data.Input.UnderlyingValue()),
 			Output: utils.AttrValueToInterface(data.Output.UnderlyingValue()),
 		}
-		_, _ = utils.RunCrudScript(ctx, data, payload, &resp.Diagnostics, utils.CrudDelete)
+		_, _ = utils.RunCrudScript(ctx, r.config, data, payload, &resp.Diagnostics, utils.CrudDelete)
 	})
 }
 
@@ -420,7 +418,7 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 	}
 
 	// Use read to populate the state
-	result, ok := utils.RunCrudScript(ctx, &data, payload, &resp.Diagnostics, utils.CrudRead)
+	result, ok := utils.RunCrudScript(ctx, r.config, &data, payload, &resp.Diagnostics, utils.CrudRead)
 	if !ok {
 		return
 	}

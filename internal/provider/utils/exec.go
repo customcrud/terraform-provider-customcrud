@@ -25,7 +25,7 @@ type ExecutionResult struct {
 }
 
 // Execute runs the given command with the provided payload, returning the result and any error.
-func Execute(ctx context.Context, cmd []string, payload ExecutionPayload) (*ExecutionResult, error) {
+func Execute(ctx context.Context, config CustomCRUDProviderConfig, cmd []string, payload ExecutionPayload) (*ExecutionResult, error) {
 	if len(cmd) == 0 {
 		return nil, fmt.Errorf("empty command")
 	}
@@ -83,7 +83,11 @@ func Execute(ctx context.Context, cmd []string, payload ExecutionPayload) (*Exec
 	}
 
 	var jsonResult map[string]interface{}
-	if err := json.Unmarshal(stdout.Bytes(), &jsonResult); err != nil {
+	d := json.NewDecoder(&stdout)
+	if config.HighPrecisionNumbers {
+		d.UseNumber()
+	}
+	if err := d.Decode(&jsonResult); err != nil {
 		return result, fmt.Errorf("failed to parse script output: %w", err)
 	}
 
