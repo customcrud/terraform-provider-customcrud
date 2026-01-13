@@ -8,6 +8,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
@@ -87,9 +88,23 @@ func (op CrudOp) String() string {
 	}
 }
 
+type CustomCRUDProviderConfig struct {
+	Parallelism          int
+	HighPrecisionNumbers bool
+	Semaphore            chan struct{}
+}
+
+func CustomCRUDProviderConfigDefaults() CustomCRUDProviderConfig {
+	return CustomCRUDProviderConfig{
+		Parallelism:          0,
+		HighPrecisionNumbers: false,
+		Semaphore:            nil,
+	}
+}
+
 // RunCrudScript runs the appropriate CRUD script for the given op (CrudCreate, CrudRead, CrudUpdate, CrudDelete)
 // and handles error/diagnostic reporting. The model must implement CrudModel.
-func RunCrudScript(ctx context.Context, model CrudModel, payload ExecutionPayload, diagnostics *diag.Diagnostics, op CrudOp) (*ExecutionResult, bool) {
+func RunCrudScript(ctx context.Context, config CustomCRUDProviderConfig, model CrudModel, payload ExecutionPayload, diagnostics *diag.Diagnostics, op CrudOp) (*ExecutionResult, bool) {
 	crud, err := GetCrudCommands(model)
 	if err != nil {
 		diagnostics.AddError("Error getting CRUD commands", err.Error())
@@ -114,7 +129,7 @@ func RunCrudScript(ctx context.Context, model CrudModel, payload ExecutionPayloa
 		diagnostics.AddError(fmt.Sprintf("Invalid %v Command", op), fmt.Sprintf("%v command cannot be empty", op))
 		return nil, false
 	}
-	result, err := Execute(ctx, cmd, payload)
+	result, err := Execute(ctx, config, cmd, payload)
 
 	title := cases.Title(language.English)
 	if err != nil {

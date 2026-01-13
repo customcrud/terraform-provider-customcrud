@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 
@@ -15,13 +16,16 @@ func MapToDynamic(data interface{}) types.Dynamic {
 }
 
 // InterfaceToAttrValue converts a Go value to an attr.Value.
-// InterfaceToAttrValue converts a Go value to an attr.Value.
 func InterfaceToAttrValue(data interface{}) attr.Value {
 	switch v := data.(type) {
 	case string:
 		return types.StringValue(v)
 	case float64:
 		return types.NumberValue(big.NewFloat(v))
+	// Only appears when high_precision_numbers set in provider config
+	case json.Number:
+		f, _, _ := big.ParseFloat(string(v), 10, 512, big.ToNearestEven)
+		return types.NumberValue(f)
 	case int:
 		return types.NumberValue(big.NewFloat(float64(v)))
 	case bool:
@@ -65,8 +69,8 @@ func AttrValueToInterface(val attr.Value) interface{} {
 		if v.IsNull() {
 			return nil
 		}
-		f, _ := v.ValueBigFloat().Float64()
-		return f
+		// Return json.Number to preserve precision
+		return json.Number(v.ValueBigFloat().Text('f', -1))
 	case types.Bool:
 		if v.IsNull() {
 			return nil

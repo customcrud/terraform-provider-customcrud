@@ -33,4 +33,5 @@ provider "customcrud" {
 
 ### Optional
 
+- `high_precision_numbers` (Boolean) Enable high precision for floating point numbers. This will cause the json parsing for outputs to use 512-bit floats instead of the default 64-bit.
 - `parallelism` (Number) Maximum number of scripts to execute in parallel. 0 means unlimited (default).
