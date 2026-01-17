@@ -1,0 +1,35 @@
+name: Python Example Tests
+
+on:
+  push:
+    paths:
+      - 'examples/file-python/**'
+  pull_request:
+    paths:
+      - 'examples/file-python/**'
+
+jobs:
+  test-python-example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        workdir: examples/file-python
+        run: |
+          cd examples/file-python
+          poetry install
+
+      - name: Run tests
+        workdir: examples/file-python
+        run: |
+          cd examples/file-python
+          poetry run pytest
