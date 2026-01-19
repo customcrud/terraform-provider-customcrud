@@ -1,5 +1,7 @@
 # Custom CRUD Terraform Provider
 
+![Coverage](https://raw.githubusercontent.com/customcrud/terraform-provider-customcrud/badges/.badges/main/coverage.svg)
+
 This Terraform provider enables the execution of custom scripts for Create, Read, Update, and Delete (CRUD) operations. It's designed to bridge the gap between Terraform and existing automation scripts or custom workflows.
 
 ## Features

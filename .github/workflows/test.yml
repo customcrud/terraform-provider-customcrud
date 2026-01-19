@@ -11,9 +11,10 @@ on:
     paths-ignore:
       - 'README.md'
 
-# Testing only needs permissions to read the repository contents.
 permissions:
-  contents: read
+  actions: read
+  contents: write
+  pull-requests: write
 
 jobs:
   # Ensure project builds before running testing matrix
@@ -81,8 +82,35 @@ jobs:
       - run: go mod download
       - env:
           TF_ACC: "1"
-        run: go test -v -cover ./internal/provider/
+        run: go test -v -coverprofile=./coverage.txt -covermode=atomic -coverpkg=./... ./internal/provider/
         timeout-minutes: 10
+
+      - name: Create artifact for coverage
+        if: matrix.terraform == '1.14.*'
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage
+          path: coverage.txt
+      
+      - name: Generate coverage report
+        if: matrix.terraform == '1.14.*'
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          profile: coverage.txt
+          local-prefix: github.com/customcrud/terraform-provider-customcrud
+          threshold-file: 60
+          threshold-package: 60
+          threshold-total: 60
+          git-token: ${{ github.ref_name == 'main' && secrets.GITHUB_TOKEN || '' }}
+          git-branch: badges
+
+  post_coverage_report:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - name: Post coverage report
+        uses: fgrosse/go-coverage-report@v1.2.0
 
   test-python-example:
     runs-on: ubuntu-latest
