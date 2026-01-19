@@ -83,3 +83,24 @@ jobs:
           TF_ACC: "1"
         run: go test -v -cover ./internal/provider/
         timeout-minutes: 10
+
+  test-python-example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: |
+          pip install poetry
+          cd examples/file-python
+          poetry install
+
+      - name: Run tests
+        run: |
+          cd examples/file-python
+          poetry run pytest

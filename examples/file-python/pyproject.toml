@@ -3,7 +3,7 @@ name = "file-provider"
 version = "0.1.0"
 description = "A python implementation of the file provider hook"
 readme = "README.md"
-packages = [{include = "file_provider.py", from = "src"}]
+packages = [{include = "src"}]
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -13,7 +13,7 @@ click = "^8.1.7"
 pytest = "^8.0.0"
 
 [tool.poetry.scripts]
-file-provider = "file_provider:main"
+file-provider = "src.file_provider:main"
 
 [build-system]
 requires = ["poetry-core"]
