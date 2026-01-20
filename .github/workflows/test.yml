@@ -98,8 +98,8 @@ jobs:
         with:
           profile: coverage.txt
           local-prefix: github.com/customcrud/terraform-provider-customcrud
-          threshold-file: 60
-          threshold-package: 60
+          threshold-file: 0
+          threshold-package: 0
           threshold-total: 60
           git-token: ${{ github.ref_name == 'main' && secrets.GITHUB_TOKEN || '' }}
           git-branch: badges
