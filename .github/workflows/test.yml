@@ -105,6 +105,7 @@ jobs:
           git-branch: badges
 
   post_coverage_report:
+    if: github.ref_name != 'main'
     runs-on: ubuntu-latest
     needs: test
     steps:
