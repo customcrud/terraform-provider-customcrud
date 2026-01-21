@@ -89,6 +89,7 @@ func (p *CustomCRUDProvider) Configure(ctx context.Context, req provider.Configu
 
 	resp.ResourceData = p
 	resp.DataSourceData = p
+	resp.EphemeralResourceData = p
 }
 
 func (p *CustomCRUDProvider) Resources(ctx context.Context) []func() resource.Resource {
