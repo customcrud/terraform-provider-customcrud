@@ -7,6 +7,7 @@ import (
 
 	"github.com/customcrud/terraform-provider-customcrud/internal/provider/utils"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -19,6 +20,10 @@ var _ ephemeral.EphemeralResourceWithConfigure = &customCrudEphemeral{}
 var _ ephemeral.EphemeralResourceWithRenew = &customCrudEphemeral{}
 var _ ephemeral.EphemeralResourceWithClose = &customCrudEphemeral{}
 
+type privater interface {
+	GetKey(context.Context, string) ([]byte, diag.Diagnostics)
+}
+
 type customCrudEphemeralModel struct {
 	Hooks  types.List    `tfsdk:"hooks"`
 	Input  types.Dynamic `tfsdk:"input"`
@@ -27,12 +32,6 @@ type customCrudEphemeralModel struct {
 
 func (m *customCrudEphemeralModel) GetHooks() types.List {
 	return m.Hooks
-}
-
-type ephemeralHooksBlockValue struct {
-	Open  types.String `tfsdk:"open"`
-	Renew types.String `tfsdk:"renew"`
-	Close types.String `tfsdk:"close"`
 }
 
 type customCrudEphemeral struct {
@@ -113,39 +112,71 @@ func (e *customCrudEphemeral) Open(ctx context.Context, req ephemeral.OpenReques
 
 		data.Output = utils.MapToDynamic(result.Result)
 		resp.Diagnostics.Append(resp.Result.Set(ctx, &data)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		// Save to private state for Renew/Close
+		// Use plain Go types for JSON marshaling instead of framework types
+		// data.Hooks is a list (nested block), we take the first element if it exists
+		var hooksData interface{}
+		if hooksList, ok := utils.AttrValueToInterface(data.Hooks).([]interface{}); ok && len(hooksList) > 0 {
+			hooksData = hooksList[0]
+		}
+		hooksBytes, err := json.Marshal(hooksData)
+		if err == nil && len(hooksBytes) > 0 {
+			resp.Diagnostics.Append(resp.Private.SetKey(ctx, "hooks", hooksBytes)...)
+		}
+
+		inputBytes, err := json.Marshal(utils.AttrValueToInterface(data.Input.UnderlyingValue()))
+		if err == nil && len(inputBytes) > 0 {
+			resp.Diagnostics.Append(resp.Private.SetKey(ctx, "input", inputBytes)...)
+		}
+
+		outputBytes, err := json.Marshal(utils.AttrValueToInterface(data.Output.UnderlyingValue()))
+		if err == nil && len(outputBytes) > 0 {
+			resp.Diagnostics.Append(resp.Private.SetKey(ctx, "output", outputBytes)...)
+		}
 	})
 }
 
 func (e *customCrudEphemeral) Renew(ctx context.Context, req ephemeral.RenewRequest, resp *ephemeral.RenewResponse) {
+	e.renew(ctx, req.Private, &resp.Diagnostics)
+}
+
+func (e *customCrudEphemeral) renew(ctx context.Context, priv privater, diagnostics *diag.Diagnostics) {
 	utils.WithSemaphore(e.config.Semaphore, func() {
 		// Get hooks from private state
-		hooksBytes, diags := req.Private.GetKey(ctx, "hooks")
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() || len(hooksBytes) == 0 {
+		hooksBytes, diags := priv.GetKey(ctx, "hooks")
+		diagnostics.Append(diags...)
+		if diagnostics.HasError() || len(hooksBytes) == 0 {
 			return
 		}
 
-		var hooks ephemeralHooksBlockValue
+		// Use a plain struct for unmarshaling to avoid types.String unmarshal issues
+		var hooks struct {
+			Renew string `json:"renew"`
+		}
 		if err := json.Unmarshal(hooksBytes, &hooks); err != nil {
-			resp.Diagnostics.AddError("Failed to unmarshal hooks from private state", err.Error())
+			diagnostics.AddError("Failed to unmarshal hooks from private state", err.Error())
 			return
 		}
 
 		// If no renew hook, just return (nothing to do)
-		if hooks.Renew.IsNull() || hooks.Renew.ValueString() == "" {
+		if hooks.Renew == "" {
 			return
 		}
 
 		// Get input/output from private state
-		inputBytes, diags := req.Private.GetKey(ctx, "input")
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
+		inputBytes, diags := priv.GetKey(ctx, "input")
+		diagnostics.Append(diags...)
+		if diagnostics.HasError() {
 			return
 		}
 
-		outputBytes, diags := req.Private.GetKey(ctx, "output")
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
+		outputBytes, diags := priv.GetKey(ctx, "output")
+		diagnostics.Append(diags...)
+		if diagnostics.HasError() {
 			return
 		}
 
@@ -162,49 +193,56 @@ func (e *customCrudEphemeral) Renew(ctx context.Context, req ephemeral.RenewRequ
 			Output: output,
 		}
 
-		cmd := strings.Fields(hooks.Renew.ValueString())
+		cmd := strings.Fields(hooks.Renew)
 		if len(cmd) == 0 {
 			return
 		}
 
 		_, err := utils.Execute(ctx, e.config, cmd, payload)
 		if err != nil {
-			resp.Diagnostics.AddError("Renew Script Failed", err.Error())
+			diagnostics.AddError("Renew Script Failed", err.Error())
 		}
 		// Renew cannot update result data per Terraform spec, just extends renewal
 	})
 }
 
 func (e *customCrudEphemeral) Close(ctx context.Context, req ephemeral.CloseRequest, resp *ephemeral.CloseResponse) {
+	e.close(ctx, req.Private, &resp.Diagnostics)
+}
+
+func (e *customCrudEphemeral) close(ctx context.Context, priv privater, diagnostics *diag.Diagnostics) {
 	utils.WithSemaphore(e.config.Semaphore, func() {
 		// Get hooks from private state
-		hooksBytes, diags := req.Private.GetKey(ctx, "hooks")
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() || len(hooksBytes) == 0 {
+		hooksBytes, diags := priv.GetKey(ctx, "hooks")
+		diagnostics.Append(diags...)
+		if diagnostics.HasError() || len(hooksBytes) == 0 {
 			return
 		}
 
-		var hooks ephemeralHooksBlockValue
+		// Use a plain struct for unmarshaling
+		var hooks struct {
+			Close string `json:"close"`
+		}
 		if err := json.Unmarshal(hooksBytes, &hooks); err != nil {
-			resp.Diagnostics.AddError("Failed to unmarshal hooks from private state", err.Error())
+			diagnostics.AddError("Failed to unmarshal hooks from private state", err.Error())
 			return
 		}
 
 		// If no close hook, just return (nothing to do)
-		if hooks.Close.IsNull() || hooks.Close.ValueString() == "" {
+		if hooks.Close == "" {
 			return
 		}
 
 		// Get input/output from private state
-		inputBytes, diags := req.Private.GetKey(ctx, "input")
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
+		inputBytes, diags := priv.GetKey(ctx, "input")
+		diagnostics.Append(diags...)
+		if diagnostics.HasError() {
 			return
 		}
 
-		outputBytes, diags := req.Private.GetKey(ctx, "output")
-		resp.Diagnostics.Append(diags...)
-		if resp.Diagnostics.HasError() {
+		outputBytes, diags := priv.GetKey(ctx, "output")
+		diagnostics.Append(diags...)
+		if diagnostics.HasError() {
 			return
 		}
 
@@ -221,7 +259,7 @@ func (e *customCrudEphemeral) Close(ctx context.Context, req ephemeral.CloseRequ
 			Output: output,
 		}
 
-		cmd := strings.Fields(hooks.Close.ValueString())
+		cmd := strings.Fields(hooks.Close)
 		if len(cmd) == 0 {
 			return
 		}
