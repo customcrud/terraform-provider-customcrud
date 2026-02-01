@@ -586,3 +586,34 @@ resource "customcrud" "test_float" {
 		},
 	})
 }
+
+func TestAccResourceWithSet(t *testing.T) {
+	createScript := "test_toset/create.sh"
+	readScript := "test_toset/read.sh"
+	deleteScript := "test_toset/delete.sh"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "customcrud" "test_set" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+	tags = toset([1, 2])
+  }
+}
+`, createScript, readScript, deleteScript),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("customcrud.test_set", "id"),
+					resource.TestCheckResourceAttr("customcrud.test_set", "input.tags.#", "2"),
+				),
+			},
+		},
+	})
+}

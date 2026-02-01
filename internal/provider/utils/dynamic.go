@@ -57,6 +57,78 @@ func InterfaceToAttrValue(data interface{}) attr.Value {
 	}
 }
 
+// InterfaceToAttrValueWithTypeHint converts a Go value to an attr.Value,
+// using typeHint to preserve collection types (Set vs Tuple) when available.
+func InterfaceToAttrValueWithTypeHint(data interface{}, typeHint attr.Value) attr.Value {
+	switch v := data.(type) {
+	case []interface{}:
+		elements := make([]attr.Value, len(v))
+		// Get element hints if available
+		var elementHints []attr.Value
+		switch hint := typeHint.(type) {
+		case types.Set:
+			elementHints = hint.Elements()
+		case types.Tuple:
+			elementHints = hint.Elements()
+		case types.List:
+			elementHints = hint.Elements()
+		}
+
+		for i, elem := range v {
+			var elemHint attr.Value
+			if i < len(elementHints) {
+				elemHint = elementHints[i]
+			}
+			elements[i] = InterfaceToAttrValueWithTypeHint(elem, elemHint)
+		}
+
+		// If the type hint is a Set, return a Set
+		if _, isSet := typeHint.(types.Set); isSet {
+			if len(elements) == 0 {
+				// For empty sets, use dynamic type
+				setVal, _ := types.SetValue(types.DynamicType, elements)
+				return setVal
+			}
+			elemType := elements[0].Type(context.Background())
+			setVal, _ := types.SetValue(elemType, elements)
+			return setVal
+		}
+
+		// Default to Tuple
+		tupleTypes := make([]attr.Type, len(elements))
+		for i, elem := range elements {
+			tupleTypes[i] = elem.Type(context.Background())
+		}
+		tupleVal, _ := types.TupleValue(tupleTypes, elements)
+		return tupleVal
+
+	case map[string]interface{}:
+		attrs := make(map[string]attr.Value)
+		attrTypes := make(map[string]attr.Type)
+
+		// Get attribute hints if available
+		var attrHints map[string]attr.Value
+		if hint, ok := typeHint.(types.Object); ok {
+			attrHints = hint.Attributes()
+		}
+
+		for k, val := range v {
+			var elemHint attr.Value
+			if attrHints != nil {
+				elemHint = attrHints[k]
+			}
+			attrs[k] = InterfaceToAttrValueWithTypeHint(val, elemHint)
+			attrTypes[k] = attrs[k].Type(context.Background())
+		}
+		objVal, _ := types.ObjectValue(attrTypes, attrs)
+		return objVal
+
+	default:
+		// For non-collection types, use the regular conversion
+		return InterfaceToAttrValue(data)
+	}
+}
+
 // AttrValueToInterface converts an attr.Value to a Go value.
 func AttrValueToInterface(val attr.Value) interface{} {
 	switch v := val.(type) {
@@ -91,6 +163,16 @@ func AttrValueToInterface(val attr.Value) interface{} {
 		}
 		return result
 	case types.Tuple:
+		if v.IsNull() {
+			return nil
+		}
+		elements := v.Elements()
+		result := make([]interface{}, len(elements))
+		for i, elem := range elements {
+			result[i] = AttrValueToInterface(elem)
+		}
+		return result
+	case types.Set:
 		if v.IsNull() {
 			return nil
 		}

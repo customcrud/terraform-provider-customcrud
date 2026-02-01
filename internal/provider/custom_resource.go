@@ -459,7 +459,8 @@ func (r *customCrudResource) mergeInputWithOutput(input types.Dynamic, output ma
 		}
 	}
 
-	return utils.MapToDynamic(merged)
+	// Use type-hinted conversion to preserve Set types from original input
+	return types.DynamicValue(utils.InterfaceToAttrValueWithTypeHint(merged, input.UnderlyingValue()))
 }
 
 func (r *customCrudResource) mergeInputWithWO(input types.Dynamic, inputWO types.String) interface{} {
