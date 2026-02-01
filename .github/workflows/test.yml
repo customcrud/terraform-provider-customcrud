@@ -89,7 +89,7 @@ jobs:
 
       - name: Create artifact for coverage
         if: matrix.terraform == '1.14.*'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: code-coverage
           path: coverage.txt
