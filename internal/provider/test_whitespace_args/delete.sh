@@ -1,0 +1,1 @@
+../test_edgecases/delete.sh

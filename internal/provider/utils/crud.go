@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
+	"mvdan.cc/sh/v3/shell"
 )
 
 // CrudHooks is a generic struct for CRUD command strings
@@ -124,7 +123,11 @@ func RunCrudScript(ctx context.Context, config CustomCRUDProviderConfig, model C
 		diagnostics.AddError("Invalid Operation", fmt.Sprintf("Unknown operation: %v", op))
 		return nil, false
 	}
-	cmd := strings.Fields(commandStr)
+	cmd, err := shell.Fields(commandStr, nil)
+	if err != nil {
+		diagnostics.AddError(fmt.Sprintf("Invalid %v Command", op), fmt.Sprintf("failed to parse %v command: %v", op, err))
+		return nil, false
+	}
 	if len(cmd) == 0 {
 		diagnostics.AddError(fmt.Sprintf("Invalid %v Command", op), fmt.Sprintf("%v command cannot be empty", op))
 		return nil, false
