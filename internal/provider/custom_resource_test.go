@@ -619,6 +619,35 @@ resource "customcrud" "test_ws" {
 	})
 }
 
+func TestAccResourceHooksInvalidShellSyntax(t *testing.T) {
+	// Unclosed quote should trigger a shell parsing error
+	createScript := `test_whitespace_args/create.sh --label="unclosed`
+	readScript := "test_whitespace_args/read.sh"
+	deleteScript := "test_whitespace_args/delete.sh"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "customcrud" "test_invalid" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    name = "invalid-syntax-test"
+  }
+}
+`, createScript, readScript, deleteScript),
+				ExpectError: regexp.MustCompile(`(?s)Invalid create Command.*failed to parse create command`),
+			},
+		},
+	})
+}
+
 func TestAccResourceWithSet(t *testing.T) {
 	createScript := "test_toset/create.sh"
 	readScript := "test_toset/read.sh"
