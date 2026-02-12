@@ -587,6 +587,67 @@ resource "customcrud" "test_float" {
 	})
 }
 
+func TestAccResourceHooksWhitespaceArgs(t *testing.T) {
+	createScript := `test_whitespace_args/create.sh --label="hello world"`
+	readScript := `test_whitespace_args/read.sh --label="hello world"`
+	deleteScript := "test_whitespace_args/delete.sh"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "customcrud" "test_ws" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    name = "whitespace-test"
+  }
+}
+`, createScript, readScript, deleteScript),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("customcrud.test_ws", "id"),
+					resource.TestCheckResourceAttr("customcrud.test_ws", "output.args.#", "1"),
+					resource.TestCheckResourceAttr("customcrud.test_ws", "output.args.0", "--label=hello world"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccResourceHooksInvalidShellSyntax(t *testing.T) {
+	// Unclosed quote should trigger a shell parsing error
+	createScript := `test_whitespace_args/create.sh --label="unclosed`
+	readScript := "test_whitespace_args/read.sh"
+	deleteScript := "test_whitespace_args/delete.sh"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "customcrud" "test_invalid" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    name = "invalid-syntax-test"
+  }
+}
+`, createScript, readScript, deleteScript),
+				ExpectError: regexp.MustCompile(`(?s)Invalid create Command.*failed to parse create command`),
+			},
+		},
+	})
+}
+
 func TestAccResourceWithSet(t *testing.T) {
 	createScript := "test_toset/create.sh"
 	readScript := "test_toset/read.sh"
