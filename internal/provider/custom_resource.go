@@ -217,7 +217,7 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 
 		payload := utils.ExecutionPayload{
 			Id:     plan.Id.ValueString(),
-			Input:  r.mergeInputWithWO(plan.Input, config.InputWO),
+			Input:  utils.MergeDefaultInputs(r.config, r.mergeInputWithWO(plan.Input, config.InputWO)),
 			Output: utils.AttrValueToInterface(plan.Output.UnderlyingValue()),
 		}
 		result, ok := utils.RunCrudScript(ctx, r.config, plan, payload, &resp.Diagnostics, utils.CrudCreate)
@@ -253,7 +253,7 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 		}
 		payload := utils.ExecutionPayload{
 			Id:     state.Id.ValueString(),
-			Input:  utils.AttrValueToInterface(state.Input.UnderlyingValue()),
+			Input:  utils.MergeDefaultInputs(r.config, utils.AttrValueToInterface(state.Input.UnderlyingValue())),
 			Output: utils.AttrValueToInterface(state.Output.UnderlyingValue()),
 		}
 		result, ok := utils.RunCrudScript(ctx, r.config, state, payload, &resp.Diagnostics, utils.CrudRead)
@@ -289,7 +289,7 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 
 		payload := utils.ExecutionPayload{
 			Id:     plan.Id.ValueString(),
-			Input:  r.mergeInputWithWO(plan.Input, config.InputWO),
+			Input:  utils.MergeDefaultInputs(r.config, r.mergeInputWithWO(plan.Input, config.InputWO)),
 			Output: utils.AttrValueToInterface(state.Output.UnderlyingValue()),
 		}
 		// Only run crud script if input has changed, hook changes shouldn't trigger execution
@@ -328,7 +328,7 @@ func (r *customCrudResource) Delete(ctx context.Context, req resource.DeleteRequ
 		}
 		payload := utils.ExecutionPayload{
 			Id:     data.Id.ValueString(),
-			Input:  utils.AttrValueToInterface(data.Input.UnderlyingValue()),
+			Input:  utils.MergeDefaultInputs(r.config, utils.AttrValueToInterface(data.Input.UnderlyingValue())),
 			Output: utils.AttrValueToInterface(data.Output.UnderlyingValue()),
 		}
 		_, _ = utils.RunCrudScript(ctx, r.config, data, payload, &resp.Diagnostics, utils.CrudDelete)
@@ -413,7 +413,7 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 
 	payload := utils.ExecutionPayload{
 		Id:     importData.Id,
-		Input:  importData.Input,
+		Input:  utils.MergeDefaultInputs(r.config, importData.Input),
 		Output: importData.Output,
 	}
 

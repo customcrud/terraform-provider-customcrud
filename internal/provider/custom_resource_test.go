@@ -648,6 +648,159 @@ resource "customcrud" "test_invalid" {
 	})
 }
 
+func TestAccResourceWithDefaultInputs(t *testing.T) {
+	createScript := "test_passthrough/create.sh"
+	readScript := "test_passthrough/read.sh"
+	deleteScript := "test_passthrough/delete.sh"
+
+	t.Run("defaults merged into resource input", func(t *testing.T) {
+		resource.Test(t, resource.TestCase{
+			PreCheck:                 func() { testAccPreCheck(t) },
+			ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+			Steps: []resource.TestStep{
+				{
+					Config: fmt.Sprintf(`
+provider "customcrud" {
+  default_inputs = {
+    api_url = "https://example.com"
+    api_key = "default-key"
+  }
+}
+
+resource "customcrud" "test_defaults" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    name = "my-resource"
+  }
+}
+`, createScript, readScript, deleteScript),
+					Check: resource.ComposeAggregateTestCheckFunc(
+						resource.TestCheckResourceAttrSet("customcrud.test_defaults", "id"),
+						resource.TestCheckResourceAttr("customcrud.test_defaults", "output.api_url", "https://example.com"),
+						resource.TestCheckResourceAttr("customcrud.test_defaults", "output.api_key", "default-key"),
+						resource.TestCheckResourceAttr("customcrud.test_defaults", "output.name", "my-resource"),
+					),
+				},
+			},
+		})
+	})
+
+	t.Run("resource input overrides defaults", func(t *testing.T) {
+		resource.Test(t, resource.TestCase{
+			PreCheck:                 func() { testAccPreCheck(t) },
+			ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+			Steps: []resource.TestStep{
+				{
+					Config: fmt.Sprintf(`
+provider "customcrud" {
+  default_inputs = {
+    api_url = "https://example.com"
+    api_key = "default-key"
+  }
+}
+
+resource "customcrud" "test_override" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    api_key = "override-key"
+    name    = "my-resource"
+  }
+}
+`, createScript, readScript, deleteScript),
+					Check: resource.ComposeAggregateTestCheckFunc(
+						resource.TestCheckResourceAttrSet("customcrud.test_override", "id"),
+						resource.TestCheckResourceAttr("customcrud.test_override", "output.api_url", "https://example.com"),
+						resource.TestCheckResourceAttr("customcrud.test_override", "output.api_key", "override-key"),
+						resource.TestCheckResourceAttr("customcrud.test_override", "output.name", "my-resource"),
+					),
+				},
+			},
+		})
+	})
+
+	t.Run("defaults not stored in output", func(t *testing.T) {
+		// Uses passthrough scripts with remove_from_output input to verify
+		// default_inputs are used at execution time but stripped from output
+		resource.Test(t, resource.TestCase{
+			PreCheck:                 func() { testAccPreCheck(t) },
+			ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+			Steps: []resource.TestStep{
+				{
+					Config: fmt.Sprintf(`
+provider "customcrud" {
+  default_inputs = {
+    api_url = "https://example.com"
+    api_key = "default-key"
+  }
+}
+
+resource "customcrud" "test_filtered" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    name               = "my-resource"
+    remove_from_output = ["api_url", "api_key"]
+  }
+}
+`, createScript, readScript, deleteScript),
+					Check: resource.ComposeAggregateTestCheckFunc(
+						resource.TestCheckResourceAttrSet("customcrud.test_filtered", "id"),
+						resource.TestCheckResourceAttr("customcrud.test_filtered", "output.name", "my-resource"),
+						resource.TestCheckNoResourceAttr("customcrud.test_filtered", "output.api_url"),
+						resource.TestCheckNoResourceAttr("customcrud.test_filtered", "output.api_key"),
+					),
+				},
+			},
+		})
+	})
+}
+
+func TestAccDataSourceWithDefaultInputs(t *testing.T) {
+	readScript := "test_passthrough/read.sh"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+provider "customcrud" {
+  default_inputs = {
+    api_url = "https://example.com"
+    token   = "default-token"
+  }
+}
+
+data "customcrud" "test_defaults" {
+  hooks {
+    read = %q
+  }
+  input = {
+    query = "my-query"
+  }
+}
+`, readScript),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("data.customcrud.test_defaults", "output.api_url", "https://example.com"),
+					resource.TestCheckResourceAttr("data.customcrud.test_defaults", "output.token", "default-token"),
+					resource.TestCheckResourceAttr("data.customcrud.test_defaults", "output.query", "my-query"),
+				),
+			},
+		},
+	})
+}
+
 func TestAccResourceWithSet(t *testing.T) {
 	createScript := "test_toset/create.sh"
 	readScript := "test_toset/read.sh"

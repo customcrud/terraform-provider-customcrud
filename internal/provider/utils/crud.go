@@ -91,6 +91,7 @@ type CustomCRUDProviderConfig struct {
 	Parallelism          int
 	HighPrecisionNumbers bool
 	Semaphore            chan struct{}
+	DefaultInputs        interface{}
 }
 
 func CustomCRUDProviderConfigDefaults() CustomCRUDProviderConfig {
@@ -98,6 +99,7 @@ func CustomCRUDProviderConfigDefaults() CustomCRUDProviderConfig {
 		Parallelism:          0,
 		HighPrecisionNumbers: false,
 		Semaphore:            nil,
+		DefaultInputs:        nil,
 	}
 }
 

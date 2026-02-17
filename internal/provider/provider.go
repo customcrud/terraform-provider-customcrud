@@ -31,9 +31,9 @@ type CustomCRUDProvider struct {
 }
 
 type CustomCRUDProviderModel struct {
-	// Provider-level configuration can be added here if needed
-	Parallelism          types.Int64 `tfsdk:"parallelism"`
-	HighPrecisionNumbers types.Bool  `tfsdk:"high_precision_numbers"`
+	Parallelism          types.Int64   `tfsdk:"parallelism"`
+	HighPrecisionNumbers types.Bool    `tfsdk:"high_precision_numbers"`
+	DefaultInputs        types.Dynamic `tfsdk:"default_inputs"`
 }
 
 func (p *CustomCRUDProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -53,7 +53,10 @@ func (p *CustomCRUDProvider) Schema(ctx context.Context, req provider.SchemaRequ
 				Optional:            true,
 				MarkdownDescription: "Enable high precision for floating point numbers. This will cause the json parsing for outputs to use 512-bit floats instead of the default 64-bit.",
 			},
-			// Provider configuration attributes can be added here
+			"default_inputs": schema.DynamicAttribute{
+				Optional:            true,
+				MarkdownDescription: "Default input values merged into every resource and data source input. Resource-level input takes priority over these defaults.",
+			},
 		},
 	}
 }
@@ -78,6 +81,10 @@ func (p *CustomCRUDProvider) Configure(ctx context.Context, req provider.Configu
 
 	if !data.HighPrecisionNumbers.IsNull() {
 		p.config.HighPrecisionNumbers = data.HighPrecisionNumbers.ValueBool()
+	}
+
+	if !data.DefaultInputs.IsNull() && !data.DefaultInputs.IsUnknown() {
+		p.config.DefaultInputs = utils.AttrValueToInterface(data.DefaultInputs.UnderlyingValue())
 	}
 
 	resp.ResourceData = p

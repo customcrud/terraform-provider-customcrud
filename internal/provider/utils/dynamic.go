@@ -129,6 +129,29 @@ func InterfaceToAttrValueWithTypeHint(data interface{}, typeHint attr.Value) att
 	}
 }
 
+// MergeDefaultInputs merges provider-level default inputs with resource/data source input.
+// Resource input takes priority over default inputs.
+func MergeDefaultInputs(config CustomCRUDProviderConfig, input interface{}) interface{} {
+	if config.DefaultInputs == nil {
+		return input
+	}
+	merged := make(map[string]interface{})
+	if defaults, ok := config.DefaultInputs.(map[string]interface{}); ok {
+		for k, v := range defaults {
+			merged[k] = v
+		}
+	}
+	if inputMap, ok := input.(map[string]interface{}); ok {
+		for k, v := range inputMap {
+			merged[k] = v
+		}
+	}
+	if len(merged) == 0 {
+		return input
+	}
+	return merged
+}
+
 // AttrValueToInterface converts an attr.Value to a Go value.
 func AttrValueToInterface(val attr.Value) interface{} {
 	switch v := val.(type) {

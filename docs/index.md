@@ -25,6 +25,17 @@ provider "customcrud" {
   # This is useful if your scripts or tools are not safe to run concurrently.
   # This option defaults to 0 (unlimited parallelism).
   parallelism = 1
+
+  # `default_inputs` can be used for secret and non-secret config alike, and
+  # will be merged into the input field sent to the all hooks. They will not
+  # show up in any plans as they are only merged at execution time, this allows
+  # you to pass in secrets via this method, as they will not be stored in any
+  # plans or state, it will however still be visible in any debug logs if TF_LOG
+  # is enabled so proceed with caution.
+  default_inputs = {
+    api_url = var.api_url
+    api_key = var.api_key
+  }
 }
 ```
 
@@ -33,5 +44,6 @@ provider "customcrud" {
 
 ### Optional
 
+- `default_inputs` (Dynamic) Default input values merged into every resource and data source input. Resource-level input takes priority over these defaults.
 - `high_precision_numbers` (Boolean) Enable high precision for floating point numbers. This will cause the json parsing for outputs to use 512-bit floats instead of the default 64-bit.
 - `parallelism` (Number) Maximum number of scripts to execute in parallel. 0 means unlimited (default).
