@@ -235,7 +235,7 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 		if plan.Id.IsNull() || plan.Id.ValueString() == "" {
 			resp.Diagnostics.AddError(
 				"Create Execution Error",
-				fmt.Sprintf("Create script must return an 'id' field\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", result.ExitCode, result.Stdout, result.Stderr, result.Payload),
+				fmt.Sprintf("Create script must return an 'id' field\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", result.ExitCode, result.MaskedStdout, result.MaskedStderr, result.MaskedPayload),
 			)
 			return
 		}

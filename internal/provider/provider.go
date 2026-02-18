@@ -31,9 +31,10 @@ type CustomCRUDProvider struct {
 }
 
 type CustomCRUDProviderModel struct {
-	Parallelism          types.Int64   `tfsdk:"parallelism"`
-	HighPrecisionNumbers types.Bool    `tfsdk:"high_precision_numbers"`
-	DefaultInputs        types.Dynamic `tfsdk:"default_inputs"`
+	Parallelism            types.Int64   `tfsdk:"parallelism"`
+	HighPrecisionNumbers   types.Bool    `tfsdk:"high_precision_numbers"`
+	DefaultInputs          types.Dynamic `tfsdk:"default_inputs"`
+	SensitiveDefaultInputs types.Dynamic `tfsdk:"sensitive_default_inputs"`
 }
 
 func (p *CustomCRUDProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -56,6 +57,11 @@ func (p *CustomCRUDProvider) Schema(ctx context.Context, req provider.SchemaRequ
 			"default_inputs": schema.DynamicAttribute{
 				Optional:            true,
 				MarkdownDescription: "Default input values merged into every resource and data source input. Resource-level input takes priority over these defaults.",
+			},
+			"sensitive_default_inputs": schema.DynamicAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Sensitive default input values (e.g. API keys, tokens) merged into every resource and data source input. Values are masked in all log output and error diagnostics. Takes priority over `default_inputs`; resource-level input takes priority over both.",
 			},
 		},
 	}
@@ -85,6 +91,18 @@ func (p *CustomCRUDProvider) Configure(ctx context.Context, req provider.Configu
 
 	if !data.DefaultInputs.IsNull() && !data.DefaultInputs.IsUnknown() {
 		p.config.DefaultInputs = utils.AttrValueToInterface(data.DefaultInputs.UnderlyingValue())
+	}
+
+	if !data.SensitiveDefaultInputs.IsNull() && !data.SensitiveDefaultInputs.IsUnknown() {
+		sensitiveVal := utils.AttrValueToInterface(data.SensitiveDefaultInputs.UnderlyingValue())
+		p.config.SensitiveDefaultInputs = sensitiveVal
+		if sensitiveMap, ok := sensitiveVal.(map[string]interface{}); ok {
+			keys := make([]string, 0, len(sensitiveMap))
+			for k := range sensitiveMap {
+				keys = append(keys, k)
+			}
+			p.config.SensitiveKeys = keys
+		}
 	}
 
 	resp.ResourceData = p

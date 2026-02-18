@@ -801,6 +801,156 @@ data "customcrud" "test_defaults" {
 	})
 }
 
+func TestAccResourceWithSensitiveDefaultInputs(t *testing.T) {
+	createScript := "test_passthrough/create.sh"
+	readScript := "test_passthrough/read.sh"
+	deleteScript := "test_passthrough/delete.sh"
+
+	t.Run("sensitive defaults merged into resource input", func(t *testing.T) {
+		resource.Test(t, resource.TestCase{
+			PreCheck:                 func() { testAccPreCheck(t) },
+			ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+			Steps: []resource.TestStep{
+				{
+					Config: fmt.Sprintf(`
+provider "customcrud" {
+  sensitive_default_inputs = {
+    api_key = "sensitive-key-123"
+  }
+}
+
+resource "customcrud" "test_sensitive" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    name = "my-resource"
+  }
+}
+`, createScript, readScript, deleteScript),
+					Check: resource.ComposeAggregateTestCheckFunc(
+						resource.TestCheckResourceAttrSet("customcrud.test_sensitive", "id"),
+						resource.TestCheckResourceAttr("customcrud.test_sensitive", "output.api_key", "sensitive-key-123"),
+						resource.TestCheckResourceAttr("customcrud.test_sensitive", "output.name", "my-resource"),
+					),
+				},
+			},
+		})
+	})
+
+	t.Run("combined with regular defaults", func(t *testing.T) {
+		resource.Test(t, resource.TestCase{
+			PreCheck:                 func() { testAccPreCheck(t) },
+			ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+			Steps: []resource.TestStep{
+				{
+					Config: fmt.Sprintf(`
+provider "customcrud" {
+  default_inputs = {
+    api_url = "https://example.com"
+  }
+  sensitive_default_inputs = {
+    api_key = "sensitive-key-456"
+  }
+}
+
+resource "customcrud" "test_combined" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    name = "my-resource"
+  }
+}
+`, createScript, readScript, deleteScript),
+					Check: resource.ComposeAggregateTestCheckFunc(
+						resource.TestCheckResourceAttrSet("customcrud.test_combined", "id"),
+						resource.TestCheckResourceAttr("customcrud.test_combined", "output.api_url", "https://example.com"),
+						resource.TestCheckResourceAttr("customcrud.test_combined", "output.api_key", "sensitive-key-456"),
+						resource.TestCheckResourceAttr("customcrud.test_combined", "output.name", "my-resource"),
+					),
+				},
+			},
+		})
+	})
+
+	t.Run("resource input overrides sensitive defaults", func(t *testing.T) {
+		resource.Test(t, resource.TestCase{
+			PreCheck:                 func() { testAccPreCheck(t) },
+			ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+			Steps: []resource.TestStep{
+				{
+					Config: fmt.Sprintf(`
+provider "customcrud" {
+  sensitive_default_inputs = {
+    api_key = "sensitive-default"
+  }
+}
+
+resource "customcrud" "test_override" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    api_key = "resource-override"
+    name    = "my-resource"
+  }
+}
+`, createScript, readScript, deleteScript),
+					Check: resource.ComposeAggregateTestCheckFunc(
+						resource.TestCheckResourceAttrSet("customcrud.test_override", "id"),
+						resource.TestCheckResourceAttr("customcrud.test_override", "output.api_key", "resource-override"),
+						resource.TestCheckResourceAttr("customcrud.test_override", "output.name", "my-resource"),
+					),
+				},
+			},
+		})
+	})
+
+	t.Run("sensitive overrides regular when same key", func(t *testing.T) {
+		resource.Test(t, resource.TestCase{
+			PreCheck:                 func() { testAccPreCheck(t) },
+			ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+			Steps: []resource.TestStep{
+				{
+					Config: fmt.Sprintf(`
+provider "customcrud" {
+  default_inputs = {
+    api_key = "regular-default"
+  }
+  sensitive_default_inputs = {
+    api_key = "sensitive-wins"
+  }
+}
+
+resource "customcrud" "test_priority" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    name = "my-resource"
+  }
+}
+`, createScript, readScript, deleteScript),
+					Check: resource.ComposeAggregateTestCheckFunc(
+						resource.TestCheckResourceAttrSet("customcrud.test_priority", "id"),
+						resource.TestCheckResourceAttr("customcrud.test_priority", "output.api_key", "sensitive-wins"),
+						resource.TestCheckResourceAttr("customcrud.test_priority", "output.name", "my-resource"),
+					),
+				},
+			},
+		})
+	})
+}
+
 func TestAccResourceWithSet(t *testing.T) {
 	createScript := "test_toset/create.sh"
 	readScript := "test_toset/read.sh"

@@ -2,8 +2,8 @@ package utils
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
@@ -88,18 +88,22 @@ func (op CrudOp) String() string {
 }
 
 type CustomCRUDProviderConfig struct {
-	Parallelism          int
-	HighPrecisionNumbers bool
-	Semaphore            chan struct{}
-	DefaultInputs        interface{}
+	Parallelism            int
+	HighPrecisionNumbers   bool
+	Semaphore              chan struct{}
+	DefaultInputs          interface{}
+	SensitiveDefaultInputs interface{}
+	SensitiveKeys          []string
 }
 
 func CustomCRUDProviderConfigDefaults() CustomCRUDProviderConfig {
 	return CustomCRUDProviderConfig{
-		Parallelism:          0,
-		HighPrecisionNumbers: false,
-		Semaphore:            nil,
-		DefaultInputs:        nil,
+		Parallelism:            0,
+		HighPrecisionNumbers:   false,
+		Semaphore:              nil,
+		DefaultInputs:          nil,
+		SensitiveDefaultInputs: nil,
+		SensitiveKeys:          nil,
 	}
 }
 
@@ -142,14 +146,12 @@ func RunCrudScript(ctx context.Context, config CustomCRUDProviderConfig, model C
 		if op == CrudRead && result != nil && result.ExitCode == 22 {
 			return result, false
 		}
-		payloadJSON, _ := json.Marshal(payload)
-		diagnostics.AddError(fmt.Sprintf("%v Script Failed", title.String(op.String())), fmt.Sprintf("%v\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", err, result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
+		diagnostics.AddError(fmt.Sprintf("%v Script Failed", title.String(op.String())), fmt.Sprintf("%v\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", err, result.ExitCode, result.MaskedStdout, result.MaskedStderr, result.MaskedPayload))
 		return result, false
 	}
 	// For delete operations, nil output is expected and should not be treated as an error
 	if result == nil || (result.Result == nil && op != CrudDelete) {
-		payloadJSON, _ := json.Marshal(payload)
-		diagnostics.AddError(fmt.Sprintf("%v Script Failed", title.String(op.String())), fmt.Sprintf("%v script returned nil output\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", op, result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
+		diagnostics.AddError(fmt.Sprintf("%v Script Failed", title.String(op.String())), fmt.Sprintf("%v script returned nil output\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", op, result.ExitCode, result.MaskedStdout, result.MaskedStderr, result.MaskedPayload))
 		return result, false
 	}
 	return result, true
