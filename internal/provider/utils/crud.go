@@ -13,12 +13,16 @@ import (
 )
 
 // CrudHooks is a generic struct for CRUD command strings
-// (for resource: create, read, update, delete; for data source: just read).
+// (for resource: create, read, update, delete; for data source: just read;
+// for ephemeral resource: open, renew, close).
 type CrudHooks struct {
 	Create types.String
 	Read   types.String
 	Update types.String
 	Delete types.String
+	Open   types.String
+	Renew  types.String
+	Close  types.String
 }
 
 // CrudModel is an interface for models that have a Hooks field (types.List).
@@ -54,6 +58,15 @@ func GetCrudCommands(model CrudModel) (*CrudHooks, error) {
 	if del, ok := attrs[Delete].(types.String); ok {
 		crud.Delete = del
 	}
+	if open, ok := attrs[Open].(types.String); ok {
+		crud.Open = open
+	}
+	if renew, ok := attrs[Renew].(types.String); ok {
+		crud.Renew = renew
+	}
+	if closeHook, ok := attrs[Close].(types.String); ok {
+		crud.Close = closeHook
+	}
 	return crud, nil
 }
 
@@ -63,6 +76,9 @@ const Create = "create"
 const Read = "read"
 const Update = "update"
 const Delete = "delete"
+const Open = "open"
+const Renew = "renew"
+const Close = "close"
 const Unknown = "unknown"
 
 const (
@@ -70,6 +86,9 @@ const (
 	CrudRead
 	CrudUpdate
 	CrudDelete
+	CrudOpen
+	CrudRenew
+	CrudClose
 )
 
 func (op CrudOp) String() string {
@@ -82,6 +101,12 @@ func (op CrudOp) String() string {
 		return Update
 	case CrudDelete:
 		return Delete
+	case CrudOpen:
+		return Open
+	case CrudRenew:
+		return Renew
+	case CrudClose:
+		return Close
 	default:
 		return Unknown
 	}
@@ -121,6 +146,12 @@ func RunCrudScript(ctx context.Context, config CustomCRUDProviderConfig, model C
 		commandStr = crud.Update.ValueString()
 	case CrudDelete:
 		commandStr = crud.Delete.ValueString()
+	case CrudOpen:
+		commandStr = crud.Open.ValueString()
+	case CrudRenew:
+		commandStr = crud.Renew.ValueString()
+	case CrudClose:
+		commandStr = crud.Close.ValueString()
 	default:
 		diagnostics.AddError("Invalid Operation", fmt.Sprintf("Unknown operation: %v", op))
 		return nil, false
