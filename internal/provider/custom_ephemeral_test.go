@@ -13,31 +13,15 @@ import (
 )
 
 func TestAccCustomCrudEphemeral_Basic(t *testing.T) {
-	// Create a temp file for the test
-	tempFile, err := os.CreateTemp(t.TempDir(), "customcrud-ephemeral-test-*.txt")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	defer os.Remove(tempFile.Name())
-	content := "Hello from ephemeral resource!"
-	if _, err := tempFile.WriteString(content); err != nil {
-		t.Fatalf("Failed to write to temp file: %v", err)
-	}
-	tempFile.Close()
-
-	// Use the same read script as data source - it outputs JSON with content
-	openScript := "../../examples/file/hooks/read.sh"
+	openScript := "../../examples/ephemeral_with_write_only/hooks/open.sh"
 
 	config := fmt.Sprintf(`
 ephemeral "customcrud" "test" {
   hooks {
     open = %q
   }
-  input = {
-    path = %q
-  }
 }
-`, openScript, tempFile.Name())
+`, openScript)
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
@@ -45,8 +29,63 @@ ephemeral "customcrud" "test" {
 		Steps: []resource.TestStep{
 			{
 				Config: config,
-				// Ephemeral resources don't persist state, so this just validates
-				// that the configuration is valid and the Open hook executes successfully
+			},
+		},
+	})
+}
+
+func TestAccCustomCrudEphemeral_WithWriteOnly(t *testing.T) {
+	secretFile := filepath.Join(t.TempDir(), "secret.txt")
+
+	openScript := "../../examples/ephemeral_with_write_only/hooks/open.sh"
+	createScript := "../../examples/ephemeral_with_write_only/hooks/create.sh"
+	readScript := "../../examples/ephemeral_with_write_only/hooks/read.sh"
+	updateScript := "../../examples/ephemeral_with_write_only/hooks/update.sh"
+	deleteScript := "../../examples/ephemeral_with_write_only/hooks/delete.sh"
+
+	config := fmt.Sprintf(`
+ephemeral "customcrud" "urandom" {
+  hooks {
+    open = %q
+  }
+}
+
+resource "customcrud" "file" {
+  hooks {
+    create = %q
+    read   = %q
+    update = %q
+    delete = %q
+  }
+
+  input = {
+    path = %q
+  }
+
+  input_wo = jsonencode({
+    content = ephemeral.customcrud.urandom.output.content
+  })
+}
+`, openScript, createScript, readScript, updateScript, deleteScript, secretFile)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					func(s *terraform.State) error {
+						content, err := os.ReadFile(secretFile)
+						if err != nil {
+							return fmt.Errorf("secret file was not created: %w", err)
+						}
+						if len(content) == 0 {
+							return fmt.Errorf("secret file is empty, expected urandom content")
+						}
+						return nil
+					},
+				),
 			},
 		},
 	})
@@ -129,7 +168,7 @@ ephemeral "customcrud" "fail" {
 }
 
 func TestAccCustomCrudEphemeral_ComplexInput(t *testing.T) {
-	openScript := "test_ephemeral/open.sh"
+	openScript := "../../examples/ephemeral_with_write_only/hooks/open.sh"
 
 	config := fmt.Sprintf(`
 ephemeral "customcrud" "complex" {
@@ -154,7 +193,6 @@ ephemeral "customcrud" "complex" {
 		Steps: []resource.TestStep{
 			{
 				Config: config,
-				// Success is enough, we verified complex input works in provider logs
 			},
 		},
 	})
@@ -186,7 +224,6 @@ ephemeral "customcrud" "p1" {
 			Steps: []resource.TestStep{
 				{
 					Config: config,
-					// Success is enough; serialization confirmed in logs
 				},
 			},
 		})

@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral"
 )
 
-// mockPrivate implements the privater interface for testing.
+// mockPrivate implements the PrivateStateReader interface for testing.
 type mockPrivate struct {
 	data map[string][]byte
 }
