@@ -190,10 +190,11 @@ func TestUnitCustomCrudEphemeral_PublicWrappers(t *testing.T) {
 	e := &customCrudEphemeral{}
 	ctx := context.Background()
 
-	// Call Renew with default request (nil Private)
-	// This will hit the entry point and then return in renew logic because priv is nil
+	// Call Renew with default request — the nil *ProviderData receiver handles
+	// GetKey gracefully (returns empty bytes), so getHookFromPrivateState
+	// returns early without error.
 	e.Renew(ctx, ephemeral.RenewRequest{}, &ephemeral.RenewResponse{})
 
-	// Call Close with default request (nil Private)
+	// Call Close with default request (same behavior as Renew above)
 	e.Close(ctx, ephemeral.CloseRequest{}, &ephemeral.CloseResponse{})
 }

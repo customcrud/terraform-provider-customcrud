@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
-	"strings"
+	"fmt"
 
 	"github.com/customcrud/terraform-provider-customcrud/internal/provider/utils"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
@@ -12,6 +12,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/ephemeral/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"mvdan.cc/sh/v3/shell"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
@@ -20,7 +22,8 @@ var _ ephemeral.EphemeralResourceWithConfigure = &customCrudEphemeral{}
 var _ ephemeral.EphemeralResourceWithRenew = &customCrudEphemeral{}
 var _ ephemeral.EphemeralResourceWithClose = &customCrudEphemeral{}
 
-type privater interface {
+// PrivateStateReader is implemented by types that can read keys from Terraform private state.
+type PrivateStateReader interface {
 	GetKey(context.Context, string) ([]byte, diag.Diagnostics)
 }
 
@@ -103,7 +106,7 @@ func (e *customCrudEphemeral) Open(ctx context.Context, req ephemeral.OpenReques
 		}
 
 		payload := utils.ExecutionPayload{
-			Input: utils.AttrValueToInterface(data.Input.UnderlyingValue()),
+			Input: utils.MergeDefaultInputs(e.config, utils.AttrValueToInterface(data.Input.UnderlyingValue())),
 		}
 		result, ok := utils.RunCrudScript(ctx, e.config, &data, payload, &resp.Diagnostics, utils.CrudOpen)
 		if !ok {
@@ -118,91 +121,116 @@ func (e *customCrudEphemeral) Open(ctx context.Context, req ephemeral.OpenReques
 
 		// Save to private state for Renew/Close
 		// Use plain Go types for JSON marshaling instead of framework types
-		// data.Hooks is a list (nested block), we take the first element if it exists
 		var hooksData interface{}
 		if hooksList, ok := utils.AttrValueToInterface(data.Hooks).([]interface{}); ok && len(hooksList) > 0 {
 			hooksData = hooksList[0]
 		}
 		hooksBytes, err := json.Marshal(hooksData)
-		if err == nil && len(hooksBytes) > 0 {
+		if err != nil {
+			resp.Diagnostics.AddWarning("Failed to save hooks to private state",
+				fmt.Sprintf("Renew and Close hooks will not function: %v", err))
+		} else if len(hooksBytes) > 0 {
 			resp.Diagnostics.Append(resp.Private.SetKey(ctx, "hooks", hooksBytes)...)
 		}
 
 		inputBytes, err := json.Marshal(utils.AttrValueToInterface(data.Input.UnderlyingValue()))
-		if err == nil && len(inputBytes) > 0 {
+		if err != nil {
+			resp.Diagnostics.AddWarning("Failed to save input to private state", err.Error())
+		} else if len(inputBytes) > 0 {
 			resp.Diagnostics.Append(resp.Private.SetKey(ctx, "input", inputBytes)...)
 		}
 
 		outputBytes, err := json.Marshal(utils.AttrValueToInterface(data.Output.UnderlyingValue()))
-		if err == nil && len(outputBytes) > 0 {
+		if err != nil {
+			resp.Diagnostics.AddWarning("Failed to save output to private state", err.Error())
+		} else if len(outputBytes) > 0 {
 			resp.Diagnostics.Append(resp.Private.SetKey(ctx, "output", outputBytes)...)
 		}
 	})
+}
+
+// privateStateHookData holds the parsed command and payload extracted from private state.
+type privateStateHookData struct {
+	cmd     []string
+	payload utils.ExecutionPayload
+}
+
+// getHookFromPrivateState extracts a hook command and its associated payload from private state.
+// Returns nil and false if the hook is not configured or cannot be parsed.
+func (e *customCrudEphemeral) getHookFromPrivateState(ctx context.Context, priv PrivateStateReader, diagnostics *diag.Diagnostics, hookName string) (*privateStateHookData, bool) {
+	hooksBytes, diags := priv.GetKey(ctx, "hooks")
+	diagnostics.Append(diags...)
+	if diagnostics.HasError() || len(hooksBytes) == 0 {
+		return nil, false
+	}
+
+	var hooks map[string]string
+	if err := json.Unmarshal(hooksBytes, &hooks); err != nil {
+		diagnostics.AddError("Failed to unmarshal hooks from private state", err.Error())
+		return nil, false
+	}
+
+	hookCmd := hooks[hookName]
+	if hookCmd == "" {
+		return nil, false
+	}
+
+	cmd, err := shell.Fields(hookCmd, nil)
+	if err != nil {
+		diagnostics.AddError(
+			fmt.Sprintf("Invalid %s Command", hookName),
+			fmt.Sprintf("failed to parse %s command: %v", hookName, err),
+		)
+		return nil, false
+	}
+	if len(cmd) == 0 {
+		return nil, false
+	}
+
+	inputBytes, diags := priv.GetKey(ctx, "input")
+	diagnostics.Append(diags...)
+	if diagnostics.HasError() {
+		return nil, false
+	}
+
+	outputBytes, diags := priv.GetKey(ctx, "output")
+	diagnostics.Append(diags...)
+	if diagnostics.HasError() {
+		return nil, false
+	}
+
+	var input, output interface{}
+	if len(inputBytes) > 0 {
+		_ = json.Unmarshal(inputBytes, &input)
+	}
+	if len(outputBytes) > 0 {
+		_ = json.Unmarshal(outputBytes, &output)
+	}
+
+	return &privateStateHookData{
+		cmd: cmd,
+		payload: utils.ExecutionPayload{
+			Input:  input,
+			Output: output,
+		},
+	}, true
 }
 
 func (e *customCrudEphemeral) Renew(ctx context.Context, req ephemeral.RenewRequest, resp *ephemeral.RenewResponse) {
 	e.renew(ctx, req.Private, &resp.Diagnostics)
 }
 
-func (e *customCrudEphemeral) renew(ctx context.Context, priv privater, diagnostics *diag.Diagnostics) {
+func (e *customCrudEphemeral) renew(ctx context.Context, priv PrivateStateReader, diagnostics *diag.Diagnostics) {
 	utils.WithSemaphore(e.config.Semaphore, func() {
-		// Get hooks from private state
-		hooksBytes, diags := priv.GetKey(ctx, "hooks")
-		diagnostics.Append(diags...)
-		if diagnostics.HasError() || len(hooksBytes) == 0 {
+		hook, ok := e.getHookFromPrivateState(ctx, priv, diagnostics, "renew")
+		if !ok {
 			return
 		}
 
-		// Use a plain struct for unmarshaling to avoid types.String unmarshal issues
-		var hooks struct {
-			Renew string `json:"renew"`
-		}
-		if err := json.Unmarshal(hooksBytes, &hooks); err != nil {
-			diagnostics.AddError("Failed to unmarshal hooks from private state", err.Error())
-			return
-		}
-
-		// If no renew hook, just return (nothing to do)
-		if hooks.Renew == "" {
-			return
-		}
-
-		// Get input/output from private state
-		inputBytes, diags := priv.GetKey(ctx, "input")
-		diagnostics.Append(diags...)
-		if diagnostics.HasError() {
-			return
-		}
-
-		outputBytes, diags := priv.GetKey(ctx, "output")
-		diagnostics.Append(diags...)
-		if diagnostics.HasError() {
-			return
-		}
-
-		var input, output interface{}
-		if len(inputBytes) > 0 {
-			_ = json.Unmarshal(inputBytes, &input)
-		}
-		if len(outputBytes) > 0 {
-			_ = json.Unmarshal(outputBytes, &output)
-		}
-
-		payload := utils.ExecutionPayload{
-			Input:  input,
-			Output: output,
-		}
-
-		cmd := strings.Fields(hooks.Renew)
-		if len(cmd) == 0 {
-			return
-		}
-
-		_, err := utils.Execute(ctx, e.config, cmd, payload)
+		_, err := utils.Execute(ctx, e.config, hook.cmd, hook.payload)
 		if err != nil {
 			diagnostics.AddError("Renew Script Failed", err.Error())
 		}
-		// Renew cannot update result data per Terraform spec, just extends renewal
 	})
 }
 
@@ -210,60 +238,18 @@ func (e *customCrudEphemeral) Close(ctx context.Context, req ephemeral.CloseRequ
 	e.close(ctx, req.Private, &resp.Diagnostics)
 }
 
-func (e *customCrudEphemeral) close(ctx context.Context, priv privater, diagnostics *diag.Diagnostics) {
+func (e *customCrudEphemeral) close(ctx context.Context, priv PrivateStateReader, diagnostics *diag.Diagnostics) {
 	utils.WithSemaphore(e.config.Semaphore, func() {
-		// Get hooks from private state
-		hooksBytes, diags := priv.GetKey(ctx, "hooks")
-		diagnostics.Append(diags...)
-		if diagnostics.HasError() || len(hooksBytes) == 0 {
+		hook, ok := e.getHookFromPrivateState(ctx, priv, diagnostics, "close")
+		if !ok {
 			return
 		}
 
-		// Use a plain struct for unmarshaling
-		var hooks struct {
-			Close string `json:"close"`
+		_, err := utils.Execute(ctx, e.config, hook.cmd, hook.payload)
+		if err != nil {
+			tflog.Warn(ctx, "Close script failed", map[string]interface{}{
+				"error": err.Error(),
+			})
 		}
-		if err := json.Unmarshal(hooksBytes, &hooks); err != nil {
-			diagnostics.AddError("Failed to unmarshal hooks from private state", err.Error())
-			return
-		}
-
-		// If no close hook, just return (nothing to do)
-		if hooks.Close == "" {
-			return
-		}
-
-		// Get input/output from private state
-		inputBytes, diags := priv.GetKey(ctx, "input")
-		diagnostics.Append(diags...)
-		if diagnostics.HasError() {
-			return
-		}
-
-		outputBytes, diags := priv.GetKey(ctx, "output")
-		diagnostics.Append(diags...)
-		if diagnostics.HasError() {
-			return
-		}
-
-		var input, output interface{}
-		if len(inputBytes) > 0 {
-			_ = json.Unmarshal(inputBytes, &input)
-		}
-		if len(outputBytes) > 0 {
-			_ = json.Unmarshal(outputBytes, &output)
-		}
-
-		payload := utils.ExecutionPayload{
-			Input:  input,
-			Output: output,
-		}
-
-		cmd := strings.Fields(hooks.Close)
-		if len(cmd) == 0 {
-			return
-		}
-
-		_, _ = utils.Execute(ctx, e.config, cmd, payload)
 	})
 }
