@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
@@ -113,18 +114,20 @@ func (op CrudOp) String() string {
 }
 
 type CustomCRUDProviderConfig struct {
-	Parallelism          int
-	HighPrecisionNumbers bool
-	Semaphore            chan struct{}
-	DefaultInputs        interface{}
+	Parallelism             int
+	HighPrecisionNumbers    bool
+	Semaphore               chan struct{}
+	DefaultInputs           interface{}
+	MissingResourceExitCode int
 }
 
 func CustomCRUDProviderConfigDefaults() CustomCRUDProviderConfig {
 	return CustomCRUDProviderConfig{
-		Parallelism:          0,
-		HighPrecisionNumbers: false,
-		Semaphore:            nil,
-		DefaultInputs:        nil,
+		Parallelism:             0,
+		HighPrecisionNumbers:    false,
+		Semaphore:               nil,
+		DefaultInputs:           nil,
+		MissingResourceExitCode: 22,
 	}
 }
 
@@ -169,8 +172,8 @@ func RunCrudScript(ctx context.Context, config CustomCRUDProviderConfig, model C
 
 	title := cases.Title(language.English)
 	if err != nil {
-		// Special case: for Read operations with exit code 22, don't add error diagnostic
-		if op == CrudRead && result != nil && result.ExitCode == 22 {
+		// Special case: for Read operations with the configured missing resource exit code, don't add error diagnostic
+		if op == CrudRead && result != nil && result.ExitCode == config.MissingResourceExitCode {
 			return result, false
 		}
 		payloadJSON, _ := json.Marshal(payload)
