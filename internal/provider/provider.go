@@ -31,9 +31,10 @@ type CustomCRUDProvider struct {
 }
 
 type CustomCRUDProviderModel struct {
-	Parallelism          types.Int64   `tfsdk:"parallelism"`
-	HighPrecisionNumbers types.Bool    `tfsdk:"high_precision_numbers"`
-	DefaultInputs        types.Dynamic `tfsdk:"default_inputs"`
+	Parallelism             types.Int64   `tfsdk:"parallelism"`
+	HighPrecisionNumbers    types.Bool    `tfsdk:"high_precision_numbers"`
+	DefaultInputs           types.Dynamic `tfsdk:"default_inputs"`
+	MissingResourceExitCode types.Int64   `tfsdk:"missing_resource_exit_code"`
 }
 
 func (p *CustomCRUDProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
@@ -56,6 +57,10 @@ func (p *CustomCRUDProvider) Schema(ctx context.Context, req provider.SchemaRequ
 			"default_inputs": schema.DynamicAttribute{
 				Optional:            true,
 				MarkdownDescription: "Default input values merged into every resource and data source input. Resource-level input takes priority over these defaults.",
+			},
+			"missing_resource_exit_code": schema.Int64Attribute{
+				Optional:            true,
+				MarkdownDescription: "Exit code that indicates a resource no longer exists on the remote. Defaults to 22.",
 			},
 		},
 	}
@@ -85,6 +90,10 @@ func (p *CustomCRUDProvider) Configure(ctx context.Context, req provider.Configu
 
 	if !data.DefaultInputs.IsNull() && !data.DefaultInputs.IsUnknown() {
 		p.config.DefaultInputs = utils.AttrValueToInterface(data.DefaultInputs.UnderlyingValue())
+	}
+
+	if !data.MissingResourceExitCode.IsNull() && !data.MissingResourceExitCode.IsUnknown() {
+		p.config.MissingResourceExitCode = int(data.MissingResourceExitCode.ValueInt64())
 	}
 
 	resp.ResourceData = p
