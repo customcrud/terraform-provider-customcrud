@@ -173,7 +173,7 @@ func RunCrudScript(ctx context.Context, config CustomCRUDProviderConfig, model C
 	title := cases.Title(language.English)
 	if err != nil {
 		// Special case: for Read operations with the configured missing resource exit code, don't add error diagnostic
-		if op == CrudRead && result != nil && result.ExitCode == config.MissingResourceExitCode {
+		if op == CrudRead && result != nil && config.MissingResourceExitCode != -1 && result.ExitCode == config.MissingResourceExitCode {
 			return result, false
 		}
 		payloadJSON, _ := json.Marshal(payload)

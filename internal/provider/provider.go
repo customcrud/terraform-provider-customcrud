@@ -60,7 +60,7 @@ func (p *CustomCRUDProvider) Schema(ctx context.Context, req provider.SchemaRequ
 			},
 			"missing_resource_exit_code": schema.Int64Attribute{
 				Optional:            true,
-				MarkdownDescription: "Exit code that indicates a resource no longer exists on the remote. Defaults to 22.",
+				MarkdownDescription: "Exit code that indicates a resource no longer exists on the remote. Defaults to 22. Set to -1 to disable this feature.",
 			},
 		},
 	}

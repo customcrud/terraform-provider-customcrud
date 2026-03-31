@@ -282,6 +282,26 @@ func TestAccResourceRemovedRemoteCustomExitCode(t *testing.T) {
 	})
 }
 
+func TestAccResourceRemovedRemoteDisabled(t *testing.T) {
+	createScript := "../../examples/file/hooks/create.sh"
+	deleteScript := "../../examples/file/hooks/delete.sh"
+	readScriptSimulateRemoval := "test_resource_removed_remote/read_simulate_removed_remote.sh"
+
+	content := "Test content for disabled missing resource exit code"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// With missing_resource_exit_code = -1, the default exit code 22 should not remove the resource
+			{
+				Config:      testAccResourceRemovedRemoteDisabledConfig(createScript, readScriptSimulateRemoval, deleteScript, content),
+				ExpectError: regexp.MustCompile(`Read Script Failed`),
+			},
+		},
+	})
+}
+
 func TestAccParallelism_SerializesExecution(t *testing.T) {
 
 	dir, err := filepath.Abs("test_parallel")
@@ -473,6 +493,25 @@ func testAccResourceRemovedRemoteCustomExitCodeConfig(createScript, readScript, 
 	return fmt.Sprintf(`
 provider "customcrud" {
   missing_resource_exit_code = 42
+}
+
+resource "customcrud" "test" {
+  hooks {
+    create = %[1]q
+    read   = %[2]q
+    delete = %[3]q
+  }
+  input = {
+    content = %[4]q
+  }
+}
+`, createScript, readScript, deleteScript, content)
+}
+
+func testAccResourceRemovedRemoteDisabledConfig(createScript, readScript, deleteScript, content string) string {
+	return fmt.Sprintf(`
+provider "customcrud" {
+  missing_resource_exit_code = -1
 }
 
 resource "customcrud" "test" {
