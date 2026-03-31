@@ -259,7 +259,7 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 		result, ok := utils.RunCrudScript(ctx, r.config, state, payload, &resp.Diagnostics, utils.CrudRead)
 		if !ok {
 			// Special case: treat configured exit code as resource removed
-			if result != nil && result.ExitCode == r.config.MissingResourceExitCode {
+			if result != nil && r.config.MissingResourceExitCode != -1 && result.ExitCode == r.config.MissingResourceExitCode {
 				resp.State.RemoveResource(ctx)
 			}
 			return

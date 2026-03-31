@@ -46,5 +46,5 @@ provider "customcrud" {
 
 - `default_inputs` (Dynamic) Default input values merged into every resource and data source input. Resource-level input takes priority over these defaults.
 - `high_precision_numbers` (Boolean) Enable high precision for floating point numbers. This will cause the json parsing for outputs to use 512-bit floats instead of the default 64-bit.
-- `missing_resource_exit_code` (Number) Exit code that indicates a resource no longer exists on the remote. Defaults to 22.
+- `missing_resource_exit_code` (Number) Exit code that indicates a resource no longer exists on the remote. Defaults to 22. Set to -1 to disable this feature.
 - `parallelism` (Number) Maximum number of scripts to execute in parallel. 0 means unlimited (default).
