@@ -14,7 +14,7 @@ This Terraform provider enables the execution of custom scripts for Create, Read
 ## Requirements
 
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
-- [Go](https://golang.org/doc/install) >= 1.23
+- [Go](https://golang.org/doc/install) >= 1.25.8
 
 ## Building The Provider
 
@@ -58,12 +58,12 @@ Your scripts should:
 Scripts receive input as JSON:
 ```json
 {
-  "id": "resource-id",  
+  "id": "resource-id",
   "input": {
-    "key": "value",
+    "key": "value"
   },
   "output": {
-    "key": "value",
+    "key": "value"
   }
 }
 ```
@@ -72,7 +72,7 @@ Scripts should return output as JSON:
 ```json
 {
   "key": "value",
-  "id": "resource-id",
+  "id": "resource-id"
 }
 ```
 

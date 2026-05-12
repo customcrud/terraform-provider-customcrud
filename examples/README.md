@@ -4,7 +4,7 @@ This directory contains examples that demonstrate how to use the Custom CRUD Pro
 
 ## File Management Example
 
-The `main.tf` file demonstrates a basic example of using the provider to manage a file through custom scripts. The example:
+The `file/main.tf` file demonstrates a basic example of using the provider to manage a file through custom scripts. The example:
 
 1. Creates a file with specified content
 2. Reads the file's content
@@ -16,7 +16,7 @@ The `main.tf` file demonstrates a basic example of using the provider to manage 
 1. Ensure the provider is built and installed
 2. Make the CRUD scripts executable:
    ```bash
-   chmod +x crud/*.sh
+   chmod +x file/hooks/*.sh
    ```
 3. Initialize Terraform:
    ```bash
@@ -29,7 +29,7 @@ The `main.tf` file demonstrates a basic example of using the provider to manage 
 
 ### Script Details
 
-The example uses four scripts in the `crud` directory:
+The example uses four scripts in the `file/hooks` directory:
 - `create.sh`: Creates a new file with the specified content
 - `read.sh`: Reads the current content of the file
 - `update.sh`: Updates the file with new content
