@@ -96,7 +96,7 @@ jobs:
       
       - name: Generate coverage report
         if: matrix.terraform == '1.14.*'
-        uses: vladopajic/go-test-coverage@v2
+        uses: vladopajic/go-test-coverage@v2.18.9
         with:
           profile: coverage.txt
           local-prefix: github.com/customcrud/terraform-provider-customcrud
