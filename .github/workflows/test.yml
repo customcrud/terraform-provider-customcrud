@@ -113,7 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Post coverage report
-        uses: fgrosse/go-coverage-report@v1.3.0
+        uses: fgrosse/go-coverage-report@v1.3.1
 
   test-python-example:
     runs-on: ubuntu-latest
