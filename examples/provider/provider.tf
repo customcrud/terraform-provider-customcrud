@@ -20,6 +20,11 @@ provider "customcrud" {
   # is enabled so proceed with caution.
   default_inputs = {
     api_url = var.api_url
+  }
+
+  # `sensitive_default_inputs` behaves the same, but values are masked in
+  # debug logs and error output.
+  sensitive_default_inputs = {
     api_key = var.api_key
   }
 }

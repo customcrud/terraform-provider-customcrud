@@ -44,3 +44,4 @@ __pycache__/
 
 coverage.out
 examples/ephemeral_with_write_only/secret.txt
+state.json
