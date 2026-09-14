@@ -63,11 +63,13 @@ resource "customcrud" "file" {
 - `hooks` (Block List) (see [below for nested schema](#nestedblock--hooks))
 - `input` (Dynamic) Input data for the resource
 - `input_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only input data (JSON string) for the resource, merged with input
+- `sensitive_outputs` (List of String) Output keys to treat as sensitive, these are moved from output into output_sensitive
 
 ### Read-Only
 
 - `id` (String) Resource identifier
 - `output` (Dynamic) Output data from the resource
+- `output_sensitive` (Dynamic, Sensitive) Output data for keys listed in sensitive_outputs, these are excluded from output
 
 <a id="nestedblock--hooks"></a>
 ### Nested Schema for `hooks`

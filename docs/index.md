@@ -34,6 +34,11 @@ provider "customcrud" {
   # is enabled so proceed with caution.
   default_inputs = {
     api_url = var.api_url
+  }
+
+  # `sensitive_default_inputs` behaves the same, but values are masked in
+  # debug logs and error output.
+  sensitive_default_inputs = {
     api_key = var.api_key
   }
 }
@@ -48,3 +53,4 @@ provider "customcrud" {
 - `high_precision_numbers` (Boolean) Enable high precision for floating point numbers. This will cause the json parsing for outputs to use 512-bit floats instead of the default 64-bit.
 - `missing_resource_exit_code` (Number) Exit code that indicates a resource no longer exists on the remote. Defaults to 22. Set to -1 to disable this feature.
 - `parallelism` (Number) Maximum number of scripts to execute in parallel. 0 means unlimited (default).
+- `sensitive_default_inputs` (Dynamic, Sensitive) Like `default_inputs`, but their values are masked in the payload, stdout and stderr shown in logs and error output. Takes priority over `default_inputs`.

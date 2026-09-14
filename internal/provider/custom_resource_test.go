@@ -922,3 +922,115 @@ resource "customcrud" "test_set" {
 		},
 	})
 }
+
+func TestAccResourceWithSensitiveDefaultInputs(t *testing.T) {
+	createScript := "test_passthrough/create.sh"
+	readScript := "test_passthrough/read.sh"
+	deleteScript := "test_passthrough/delete.sh"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+provider "customcrud" {
+  default_inputs = {
+    api_url = "https://example.com"
+    api_key = "regular-default"
+    name    = "default-name"
+  }
+  sensitive_default_inputs = {
+    api_key = "sensitive-wins"
+  }
+}
+
+resource "customcrud" "test_sensitive" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    name = "my-resource"
+  }
+}
+`, createScript, readScript, deleteScript),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrSet("customcrud.test_sensitive", "id"),
+					resource.TestCheckResourceAttr("customcrud.test_sensitive", "output.api_url", "https://example.com"),
+					resource.TestCheckResourceAttr("customcrud.test_sensitive", "output.api_key", "sensitive-wins"),
+					resource.TestCheckResourceAttr("customcrud.test_sensitive", "output.name", "my-resource"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccResourceWithSensitiveOutputs(t *testing.T) {
+	createScript := "test_passthrough/create.sh"
+	readScript := "test_passthrough/read.sh"
+	deleteScript := "test_passthrough/delete.sh"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "customcrud" "test_sensitive_out" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    public  = "age16a5..."
+    private = "AGE-SECRET-KEY-1..."
+  }
+  sensitive_outputs = ["private"]
+}
+`, createScript, readScript, deleteScript),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("customcrud.test_sensitive_out", "output.public", "age16a5..."),
+					resource.TestCheckNoResourceAttr("customcrud.test_sensitive_out", "output.private"),
+					resource.TestCheckResourceAttr("customcrud.test_sensitive_out", "output_sensitive.private", "AGE-SECRET-KEY-1..."),
+					resource.TestCheckNoResourceAttr("customcrud.test_sensitive_out", "output_sensitive.public"),
+				),
+			},
+		},
+	})
+}
+
+func TestAccResourceInputWOMaskedInErrors(t *testing.T) {
+	createScript := "test_failures/create.sh"
+	readScript := "test_failures/read.sh"
+	deleteScript := "test_failures/delete.sh"
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "customcrud" "test_wo_masked" {
+  hooks {
+    create = %q
+    read   = %q
+    delete = %q
+  }
+  input = {
+    name = "visible"
+  }
+  input_wo = jsonencode({
+    secret_key = "super-secret-value"
+  })
+}
+`, createScript, readScript, deleteScript),
+				ExpectError: regexp.MustCompile(
+					`(?s)Create Script Failed.*Stderr: .*"secret_key":"\*\*\*".*Input Payload:.*"secret_key":"\*\*\*"`,
+				),
+			},
+		},
+	})
+}
