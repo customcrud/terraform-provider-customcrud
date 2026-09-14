@@ -36,6 +36,9 @@ type customCrudResourceModel struct {
 	Input   types.Dynamic `tfsdk:"input"`
 	InputWO types.String  `tfsdk:"input_wo"`
 	Output  types.Dynamic `tfsdk:"output"`
+
+	OutputSensitive  types.Dynamic `tfsdk:"output_sensitive"`
+	SensitiveOutputs types.List    `tfsdk:"sensitive_outputs"`
 }
 
 func (m *customCrudResourceModel) GetHooks() types.List {
@@ -84,6 +87,19 @@ func (r *customCrudResource) Schema(ctx context.Context, req resource.SchemaRequ
 			"output": schema.DynamicAttribute{
 				Computed:    true,
 				Description: "Output data from the resource",
+			},
+			"output_sensitive": schema.DynamicAttribute{
+				Computed:    true,
+				Sensitive:   true,
+				Description: "Output data for keys listed in sensitive_outputs, these are excluded from output",
+				PlanModifiers: []planmodifier.Dynamic{
+					UseStateForUnknownIfInputUnchanged(),
+				},
+			},
+			"sensitive_outputs": schema.ListAttribute{
+				Optional:    true,
+				ElementType: types.StringType,
+				Description: "Output keys to treat as sensitive, these are moved from output into output_sensitive",
 			},
 		},
 		Blocks: map[string]schema.Block{
@@ -215,10 +231,12 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 			return
 		}
 
+		merged, woMap := r.mergeInputWithWO(plan.Input, config.InputWO)
 		payload := utils.ExecutionPayload{
-			Id:     plan.Id.ValueString(),
-			Input:  utils.MergeDefaultInputs(r.config, r.mergeInputWithWO(plan.Input, config.InputWO)),
-			Output: utils.AttrValueToInterface(plan.Output.UnderlyingValue()),
+			Id:            plan.Id.ValueString(),
+			Input:         utils.MergeDefaultInputs(r.config, merged),
+			Output:        utils.AttrValueToInterface(plan.Output.UnderlyingValue()),
+			SensitiveKeys: mapKeys(woMap),
 		}
 		result, ok := utils.RunCrudScript(ctx, r.config, plan, payload, &resp.Diagnostics, utils.CrudCreate)
 		if !ok {
@@ -239,7 +257,7 @@ func (r *customCrudResource) Create(ctx context.Context, req resource.CreateRequ
 			)
 			return
 		}
-		plan.Output = utils.MapToDynamic(result.Result)
+		plan.Output, plan.OutputSensitive = utils.SplitSensitiveOutput(result.Result, plan.SensitiveOutputs)
 		plan.Input = r.mergeInputWithOutput(plan.Input, result.Result)
 		resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 	})
@@ -254,7 +272,7 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 		payload := utils.ExecutionPayload{
 			Id:     state.Id.ValueString(),
 			Input:  utils.MergeDefaultInputs(r.config, utils.AttrValueToInterface(state.Input.UnderlyingValue())),
-			Output: utils.AttrValueToInterface(state.Output.UnderlyingValue()),
+			Output: utils.CombineOutput(state.Output, state.OutputSensitive),
 		}
 		result, ok := utils.RunCrudScript(ctx, r.config, state, payload, &resp.Diagnostics, utils.CrudRead)
 		if !ok {
@@ -264,7 +282,7 @@ func (r *customCrudResource) Read(ctx context.Context, req resource.ReadRequest,
 			}
 			return
 		}
-		state.Output = utils.MapToDynamic(result.Result)
+		state.Output, state.OutputSensitive = utils.SplitSensitiveOutput(result.Result, state.SensitiveOutputs)
 		state.Input = r.mergeInputWithOutput(state.Input, result.Result)
 		resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
 	})
@@ -287,16 +305,19 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 			return
 		}
 
+		merged, woMap := r.mergeInputWithWO(plan.Input, config.InputWO)
 		payload := utils.ExecutionPayload{
-			Id:     plan.Id.ValueString(),
-			Input:  utils.MergeDefaultInputs(r.config, r.mergeInputWithWO(plan.Input, config.InputWO)),
-			Output: utils.AttrValueToInterface(state.Output.UnderlyingValue()),
+			Id:            plan.Id.ValueString(),
+			Input:         utils.MergeDefaultInputs(r.config, merged),
+			Output:        utils.CombineOutput(state.Output, state.OutputSensitive),
+			SensitiveKeys: mapKeys(woMap),
 		}
 		// Only run crud script if input has changed, hook changes shouldn't trigger execution
 		if state.Input.Equal(plan.Input) {
 			tflog.Info(ctx, "Hook-only change, skipping update execution")
 			plan.Input = state.Input
-			plan.Output = state.Output
+			combined, _ := utils.CombineOutput(state.Output, state.OutputSensitive).(map[string]interface{})
+			plan.Output, plan.OutputSensitive = utils.SplitSensitiveOutput(combined, plan.SensitiveOutputs)
 			resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 			return
 		}
@@ -314,7 +335,7 @@ func (r *customCrudResource) Update(ctx context.Context, req resource.UpdateRequ
 		} else {
 			plan.Id = state.Id
 		}
-		plan.Output = utils.MapToDynamic(result.Result)
+		plan.Output, plan.OutputSensitive = utils.SplitSensitiveOutput(result.Result, plan.SensitiveOutputs)
 		plan.Input = r.mergeInputWithOutput(plan.Input, result.Result)
 		resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 	})
@@ -329,7 +350,7 @@ func (r *customCrudResource) Delete(ctx context.Context, req resource.DeleteRequ
 		payload := utils.ExecutionPayload{
 			Id:     data.Id.ValueString(),
 			Input:  utils.MergeDefaultInputs(r.config, utils.AttrValueToInterface(data.Input.UnderlyingValue())),
-			Output: utils.AttrValueToInterface(data.Output.UnderlyingValue()),
+			Output: utils.CombineOutput(data.Output, data.OutputSensitive),
 		}
 		_, _ = utils.RunCrudScript(ctx, r.config, data, payload, &resp.Diagnostics, utils.CrudDelete)
 	})
@@ -399,8 +420,10 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 	}
 
 	data := customCrudResourceModel{
-		Id:    types.StringValue(importData.Id),
-		Hooks: hooksList,
+		Id:               types.StringValue(importData.Id),
+		Hooks:            hooksList,
+		OutputSensitive:  types.DynamicNull(),
+		SensitiveOutputs: types.ListNull(types.StringType),
 	}
 
 	if importData.Input != nil {
@@ -428,8 +451,7 @@ func (r *customCrudResource) ImportState(ctx context.Context, req resource.Impor
 		return
 	}
 
-	outputValue := utils.MapToDynamic(result.Result)
-	data.Output = outputValue
+	data.Output, data.OutputSensitive = utils.SplitSensitiveOutput(result.Result, data.SensitiveOutputs)
 	data.Input = r.mergeInputWithOutput(data.Input, result.Result)
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -463,7 +485,8 @@ func (r *customCrudResource) mergeInputWithOutput(input types.Dynamic, output ma
 	return types.DynamicValue(utils.InterfaceToAttrValueWithTypeHint(merged, input.UnderlyingValue()))
 }
 
-func (r *customCrudResource) mergeInputWithWO(input types.Dynamic, inputWO types.String) interface{} {
+// mergeInputWithWO merges input_wo into input, also returning the write-only map so its keys can be masked.
+func (r *customCrudResource) mergeInputWithWO(input types.Dynamic, inputWO types.String) (interface{}, map[string]interface{}) {
 	var inputMap map[string]interface{}
 	if !input.IsNull() && !input.IsUnknown() {
 		if m, ok := utils.AttrValueToInterface(input.UnderlyingValue()).(map[string]interface{}); ok {
@@ -479,8 +502,8 @@ func (r *customCrudResource) mergeInputWithWO(input types.Dynamic, inputWO types
 		merged[k] = v
 	}
 
+	var woMap map[string]interface{}
 	if !inputWO.IsNull() && !inputWO.IsUnknown() {
-		var woMap map[string]interface{}
 		if err := json.Unmarshal([]byte(inputWO.ValueString()), &woMap); err == nil {
 			for k, v := range woMap {
 				merged[k] = v
@@ -488,5 +511,13 @@ func (r *customCrudResource) mergeInputWithWO(input types.Dynamic, inputWO types
 		}
 	}
 
-	return merged
+	return merged, woMap
+}
+
+func mapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

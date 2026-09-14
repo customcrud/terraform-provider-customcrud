@@ -5,15 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
-
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"os/exec"
 )
 
 type ExecutionPayload struct {
 	Id     string      `json:"id,omitempty"`
 	Input  interface{} `json:"input,omitempty"`
 	Output interface{} `json:"output,omitempty"`
+
+	// Top-level input keys whose values are masked in logs and diagnostics, in addition to the provider's sensitive default keys.
+	SensitiveKeys []string `json:"-"`
 }
 
 type ExecutionResult struct {
@@ -35,7 +37,9 @@ func Execute(ctx context.Context, config CustomCRUDProviderConfig, cmd []string,
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	payloadStr := string(payloadBytes)
+	sensitiveKeys := append(append([]string{}, config.SensitiveKeys...), payload.SensitiveKeys...)
+	sensitiveValues := SensitiveValues(payload.Input, sensitiveKeys)
+	payloadStr := MaskInputKeys(payloadBytes, sensitiveKeys)
 	tflog.Debug(ctx, "Executing script", map[string]interface{}{
 		"command": cmd,
 		"payload": payloadStr,
@@ -51,8 +55,8 @@ func Execute(ctx context.Context, config CustomCRUDProviderConfig, cmd []string,
 	err = execCmd.Run()
 	result := &ExecutionResult{
 		Payload:  payloadStr,
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
+		Stdout:   MaskValues(stdout.String(), sensitiveValues),
+		Stderr:   MaskValues(stderr.String(), sensitiveValues),
 		ExitCode: 0,
 	}
 
@@ -65,7 +69,7 @@ func Execute(ctx context.Context, config CustomCRUDProviderConfig, cmd []string,
 			"stderr":   result.Stderr,
 			"exitCode": result.ExitCode,
 			"error":    err.Error(),
-			"payload":  string(payloadBytes),
+			"payload":  payloadStr,
 		})
 		return result, fmt.Errorf("script execution failed with exit code %d: %w", result.ExitCode, err)
 	}
@@ -74,7 +78,7 @@ func Execute(ctx context.Context, config CustomCRUDProviderConfig, cmd []string,
 		"stdout":   result.Stdout,
 		"stderr":   result.Stderr,
 		"exitCode": result.ExitCode,
-		"payload":  string(payloadBytes),
+		"payload":  payloadStr,
 	})
 
 	if stdout.Len() == 0 {

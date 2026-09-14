@@ -26,15 +26,35 @@ provider "customcrud" {
   # This option defaults to 0 (unlimited parallelism).
   parallelism = 1
 
-  # `default_inputs` can be used for secret and non-secret config alike, and
-  # will be merged into the input field sent to the all hooks. They will not
-  # show up in any plans as they are only merged at execution time, this allows
-  # you to pass in secrets via this method, as they will not be stored in any
-  # plans or state, it will however still be visible in any debug logs if TF_LOG
-  # is enabled so proceed with caution.
+  # merged into the input field sent to the all hooks. They will not show up in
+  # any plans as they are only merged at execution time
   default_inputs = {
     api_url = var.api_url
+  }
+
+  # `sensitive_default_inputs` behaves the same as `default_inputs`, but values
+  # are masked in debug logs and error output.
+  sensitive_default_inputs = {
     api_key = var.api_key
+  }
+}
+
+variable "api_url" {
+  type = string
+}
+
+variable "api_key" {
+  type      = string
+  sensitive = true
+}
+
+resource "customcrud" "defaults" {
+  hooks {
+    create = <<-EOF
+      bash -c 'jq --arg id "$(uuidgen)" "del(.input) + {id: \$id}"'
+    EOF
+    read   = "jq .output"
+    delete = "cat"
   }
 }
 ```
@@ -48,3 +68,4 @@ provider "customcrud" {
 - `high_precision_numbers` (Boolean) Enable high precision for floating point numbers. This will cause the json parsing for outputs to use 512-bit floats instead of the default 64-bit.
 - `missing_resource_exit_code` (Number) Exit code that indicates a resource no longer exists on the remote. Defaults to 22. Set to -1 to disable this feature.
 - `parallelism` (Number) Maximum number of scripts to execute in parallel. 0 means unlimited (default).
+- `sensitive_default_inputs` (Dynamic, Sensitive) Like `default_inputs`, but their values are masked in the payload, stdout and stderr shown in logs and error output. Takes priority over `default_inputs`.

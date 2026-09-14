@@ -130,13 +130,18 @@ func InterfaceToAttrValueWithTypeHint(data interface{}, typeHint attr.Value) att
 }
 
 // MergeDefaultInputs merges provider-level default inputs with resource/data source input.
-// Resource input takes priority over default inputs.
+// Priority: input > sensitive_default_inputs > default_inputs.
 func MergeDefaultInputs(config CustomCRUDProviderConfig, input interface{}) interface{} {
-	if config.DefaultInputs == nil {
+	if config.DefaultInputs == nil && config.SensitiveDefaultInputs == nil {
 		return input
 	}
 	merged := make(map[string]interface{})
 	if defaults, ok := config.DefaultInputs.(map[string]interface{}); ok {
+		for k, v := range defaults {
+			merged[k] = v
+		}
+	}
+	if defaults, ok := config.SensitiveDefaultInputs.(map[string]interface{}); ok {
 		for k, v := range defaults {
 			merged[k] = v
 		}
