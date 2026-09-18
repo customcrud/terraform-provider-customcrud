@@ -34,6 +34,7 @@ type CustomCRUDProviderModel struct {
 	Parallelism             types.Int64   `tfsdk:"parallelism"`
 	HighPrecisionNumbers    types.Bool    `tfsdk:"high_precision_numbers"`
 	DefaultInputs           types.Dynamic `tfsdk:"default_inputs"`
+	SensitiveDefaultInputs  types.Dynamic `tfsdk:"sensitive_default_inputs"`
 	MissingResourceExitCode types.Int64   `tfsdk:"missing_resource_exit_code"`
 }
 
@@ -57,6 +58,11 @@ func (p *CustomCRUDProvider) Schema(ctx context.Context, req provider.SchemaRequ
 			"default_inputs": schema.DynamicAttribute{
 				Optional:            true,
 				MarkdownDescription: "Default input values merged into every resource and data source input. Resource-level input takes priority over these defaults.",
+			},
+			"sensitive_default_inputs": schema.DynamicAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				MarkdownDescription: "Like `default_inputs`, but their values are masked in the payload, stdout and stderr shown in logs and error output. Takes priority over `default_inputs`.",
 			},
 			"missing_resource_exit_code": schema.Int64Attribute{
 				Optional:            true,
@@ -90,6 +96,13 @@ func (p *CustomCRUDProvider) Configure(ctx context.Context, req provider.Configu
 
 	if !data.DefaultInputs.IsNull() && !data.DefaultInputs.IsUnknown() {
 		p.config.DefaultInputs = utils.AttrValueToInterface(data.DefaultInputs.UnderlyingValue())
+	}
+
+	if !data.SensitiveDefaultInputs.IsNull() && !data.SensitiveDefaultInputs.IsUnknown() {
+		p.config.SensitiveDefaultInputs = utils.AttrValueToInterface(data.SensitiveDefaultInputs.UnderlyingValue())
+		if m, ok := p.config.SensitiveDefaultInputs.(map[string]interface{}); ok {
+			p.config.SensitiveKeys = mapKeys(m)
+		}
 	}
 
 	if !data.MissingResourceExitCode.IsNull() && !data.MissingResourceExitCode.IsUnknown() {

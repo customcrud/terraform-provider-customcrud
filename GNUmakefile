@@ -7,6 +7,7 @@ build:
 	cp terraform-provider-customcrud "$(local_registry_path)/terraform-provider-customcrud"
 	cd examples/file && rm -f .terraform.lock.hcl && terraform init
 	cd examples/ephemeral_with_write_only && rm -f .terraform.lock.hcl && terraform init
+	cd examples/provider && rm -f .terraform.lock.hcl && terraform init
 
 install: build
 	go install -v ./...

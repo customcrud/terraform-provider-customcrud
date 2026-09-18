@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -118,6 +117,8 @@ type CustomCRUDProviderConfig struct {
 	HighPrecisionNumbers    bool
 	Semaphore               chan struct{}
 	DefaultInputs           interface{}
+	SensitiveDefaultInputs  interface{}
+	SensitiveKeys           []string
 	MissingResourceExitCode int
 }
 
@@ -176,14 +177,12 @@ func RunCrudScript(ctx context.Context, config CustomCRUDProviderConfig, model C
 		if op == CrudRead && result != nil && config.MissingResourceExitCode != -1 && result.ExitCode == config.MissingResourceExitCode {
 			return result, false
 		}
-		payloadJSON, _ := json.Marshal(payload)
-		diagnostics.AddError(fmt.Sprintf("%v Script Failed", title.String(op.String())), fmt.Sprintf("%v\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", err, result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
+		diagnostics.AddError(fmt.Sprintf("%v Script Failed", title.String(op.String())), fmt.Sprintf("%v\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", err, result.ExitCode, result.Stdout, result.Stderr, result.Payload))
 		return result, false
 	}
 	// For delete operations, nil output is expected and should not be treated as an error
 	if result == nil || (result.Result == nil && op != CrudDelete) {
-		payloadJSON, _ := json.Marshal(payload)
-		diagnostics.AddError(fmt.Sprintf("%v Script Failed", title.String(op.String())), fmt.Sprintf("%v script returned nil output\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", op, result.ExitCode, result.Stdout, result.Stderr, string(payloadJSON)))
+		diagnostics.AddError(fmt.Sprintf("%v Script Failed", title.String(op.String())), fmt.Sprintf("%v script returned nil output\nExit Code: %d\nStdout: %s\nStderr: %s\nInput Payload: %s", op, result.ExitCode, result.Stdout, result.Stderr, result.Payload))
 		return result, false
 	}
 	return result, true
