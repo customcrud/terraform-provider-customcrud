@@ -5,13 +5,14 @@ set -euo pipefail
 input="$(cat)"
 name="$(echo "$input" | jq -r .input.name)"
 
-lockdir="/tmp/${name}.lock"
-if ! mkdir "$lockdir" 2>/dev/null; then
+lockfile="/tmp/${name}.lock"
+# noclobber opens with O_EXCL; uutils mkdir (Ubuntu 26.04) is not exclusive under a race
+if ! (set -o noclobber; : > "$lockfile") 2>/dev/null; then
   jq -n --arg name "$name" '{error: "lock [\($name)] already held"}' >&2
   exit 1
 fi
 
-trap 'rmdir "$lockdir"' EXIT
+trap 'rm -f "$lockfile"' EXIT
 
 # Ensures terraform can create the resource fast enough to create a collision if
 # parallism is enabled
