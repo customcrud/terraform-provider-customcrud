@@ -1,6 +1,6 @@
 module github.com/customcrud/terraform-provider-customcrud
 
-go 1.26.0
+go 1.26.11
 
 require (
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
